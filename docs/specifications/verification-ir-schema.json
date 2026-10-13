@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://selyth.dev/schemas/verification-ir/v0.1.0",
+  "title": "Selyth Verification IR (L2)",
+  "description": "The backend-specific lowering of one Obligation Set, regenerated on every run and disposable. It carries what a backend needs to check the obligations and nothing about how a program executes. Regenerating it from the same reproducibility inputs must give a byte-identical file, so it holds no timestamp, path, host name or randomness. Every obligation of the set appears exactly once, in `units` or in `unsupported`: an adapter never drops an obligation it cannot lower.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "selyth_ir_version",
+    "reproducibility_key",
+    "obligation_set",
+    "adapter",
+    "backend",
+    "units",
+    "unsupported"
+  ],
+  "properties": {
+    "selyth_ir_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "reproducibility_key": {
+      "description": "Digest of the canonical JSON of {adapter, backend, ir_version, obligation_set_digest}. Two IR files with the same key must be byte-identical; a change of any input changes the key.",
+      "$ref": "#/$defs/digest"
+    },
+    "obligation_set": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["digest", "set_id", "specification_version"],
+      "properties": {
+        "digest": { "$ref": "#/$defs/digest" },
+        "set_id": { "type": "string", "minLength": 1 },
+        "specification_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" }
+      }
+    },
+    "adapter": { "$ref": "#/$defs/tool" },
+    "backend": {
+      "description": "Identity of the verification tool the IR targets. The version is declared by the caller, never discovered, so the IR does not depend on the machine it was generated on.",
+      "$ref": "#/$defs/tool"
+    },
+    "units": {
+      "description": "Obligations lowered to a backend clause, sorted by obligation_id.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["obligation_id", "obligation_digest", "clause", "context"],
+        "properties": {
+          "obligation_id": { "type": "string", "minLength": 1 },
+          "obligation_digest": { "$ref": "#/$defs/digest" },
+          "clause": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["keyword", "expression"],
+            "properties": {
+              "keyword": { "type": "string", "enum": ["requires", "ensures", "invariant", "decreases"] },
+              "expression": { "description": "Canonical form of the expression, in the supported subset.", "type": "string", "minLength": 1 }
+            }
+          },
+          "context": {
+            "description": "Proof context carried alongside the clause. Assumptions are listed here for the report; they are never lowered to `assume`, which the policy treats as a trust escape.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["assumptions", "affected_components"],
+            "properties": {
+              "assumptions": { "type": "array", "items": { "type": "string" } },
+              "affected_components": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    },
+    "unsupported": {
+      "description": "Obligations the adapter cannot lower, with the reason. A verification run reports them as not run; they are never silently absent.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["obligation_id", "obligation_digest", "kind", "reason"],
+        "properties": {
+          "obligation_id": { "type": "string", "minLength": 1 },
+          "obligation_digest": { "$ref": "#/$defs/digest" },
+          "kind": { "type": "string", "minLength": 1 },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}
