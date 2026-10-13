@@ -89,6 +89,14 @@ def build_report(policy, document, edit=None):
     return report
 
 
+CEILING = {"property-tested": "empirical", "runtime-asserted": "empirical", "llm-corroborated": "probabilistic",
+           "human-asserted": "none", "kernel-proven": "sound-for-fragment"}
+
+
+def valid_report(report):
+    return not validate.validate(report, REPORT_SCHEMA)
+
+
 def entry(report, oid):
     return next(e for e in report["obligations"] if e["obligation_id"] == oid)
 
@@ -249,6 +257,43 @@ def check_scenarios():
     check(d["result"] == "rejected" and [v["obligation_id"] for v in d["violations"]] == ["OBL-0008"],
           "non_empty_assumptions: only the obligation with an empty list lacks it", f"    {d}")
 
+    heading("Empirical evidence: the lattice below machine-checked-model is live")
+
+    def empirical_run(kind, required, threshold, outcome="passed", **evidence):
+        doc = the_set()
+        doc["obligations"][0]["required_evidence_kind"] = required
+        pol = accept_all_policy(threshold)
+        report = build_report(pol, doc, lambda r: entry(r, "OBL-0007").update(outcome=outcome) or entry(
+            r, "OBL-0007")["evidence"].update({"kind": kind, "soundness": CEILING[kind], **evidence}))
+        return decide(pol, report, doc), report
+
+    for kind, required, threshold, want, why in (
+        ("property-tested", "property-tested", "property-tested", "accepted", "a passing property test meets its requirement and the policy's threshold"),
+        ("property-tested", "property-tested", "machine-checked-model", "rejected", "...but not a policy that demands machine-checked evidence"),
+        ("property-tested", "kernel-proven", "property-tested", "rejected", "...nor a set that requires a proof"),
+        ("runtime-asserted", "runtime-asserted", "runtime-asserted", "accepted", "a runtime assertion at its own level"),
+        ("runtime-asserted", "runtime-asserted", "property-tested", "rejected", "runtime-asserted ranks below property-tested"),
+    ):
+        d, _ = empirical_run(kind, required, threshold)
+        rule = {"BLOCK-EVIDENCE-BELOW-REQUIRED", "DEFAULT-NO-RULE-DECIDES"}
+        check(d["result"] == want and (want == "accepted" or {v["rule_id"] for v in d["violations"]} <= rule)
+              and (want == "accepted" or [v["obligation_id"] for v in d["violations"]] == ["OBL-0007"]),
+              f"{kind} passed, required {required}, threshold {threshold}: {want} ({why})", f"    {d}")
+    d, _ = empirical_run("property-tested", "kernel-proven", "property-tested")
+    check(rule_ids(d) == ["BLOCK-EVIDENCE-BELOW-REQUIRED"], "a set requiring a proof blocks empirical evidence by name")
+    d, _ = empirical_run("property-tested", "property-tested", "machine-checked-model")
+    check(rule_ids(d) == ["DEFAULT-NO-RULE-DECIDES"], "a policy demanding a proof leaves empirical evidence undecided: rejected by default")
+    d, _ = empirical_run("llm-corroborated", "llm-corroborated", "human-asserted", model_identity={"name": "m", "version": "1"})
+    check(rule_ids(d) == ["BLOCK-LLM-NOT-SUFFICIENT"], "a model's corroboration never accepts an obligation, whatever the policy says", f"    {d}")
+    d, _ = empirical_run("human-asserted", "human-asserted", "human-asserted")
+    check(rule_ids(d) == ["BLOCK-WAIVER-MISSING"], "a human assertion without a recorded waiver is blocked")
+    d, _ = empirical_run("human-asserted", "human-asserted", "human-asserted", waiver_id="WAIVER-7")
+    check(d["result"] == "accepted", "...and accepted with one, when the set and the policy allow it")
+    d, _ = empirical_run("kernel-proven", "kernel-proven", "kernel-proven", soundness="sound-for-fragment")
+    check(rule_ids(d) == ["BLOCK-PASSED-WITHOUT-EMPIRICAL-EVIDENCE"], "'passed' with machine-checked evidence is blocked: it should say proven")
+    d, report = empirical_run("property-tested", "property-tested", "property-tested")
+    check(valid_report(report), "(setup) the accepted empirical report is valid for JSON Schema")
+
     heading("Rules: selection, order, actions")
     guarded = copy.deepcopy(legacy.good_policy)  # accept core kinds, escalate everything else
     d = decide(guarded, build_report(guarded, document), document)
@@ -364,9 +409,20 @@ def check_lattice_and_digest():
 
 # ------------------------------------------------------------------ safety, exhaustive
 
+def safe_acceptance(outcome, kind, waiver, required):
+    """The only ways an obligation may be accepted, written down independently of the engine."""
+    if engine.RANK[kind] < engine.RANK[required]:
+        return False
+    if outcome == "proven":
+        return kind in ("kernel-proven", "machine-checked-model")
+    if outcome == "passed":
+        return kind in ("runtime-asserted", "property-tested") or (kind == "human-asserted" and bool(waiver))
+    return False
+
+
 def check_exhaustive_safety():
     heading("Safety, exhaustively: acceptance never outruns the evidence")
-    outcomes = ("proven", "failed", "timeout", "not-run", "unknown", "novel")
+    outcomes = ("proven", "passed", "failed", "timeout", "not-run", "unknown", "novel")
     kinds = engine.EVIDENCE_LATTICE
     actions = ("accept", "reject", "escalate")
     thresholds = (None, *engine.EVIDENCE_LATTICE)
@@ -386,21 +442,24 @@ def check_exhaustive_safety():
                 rule["escalate_to"] = "owner"
             policy["on_unknown_evidence"], policy["on_timeout"] = on_unknown, on_timeout
             base = build_report(policy, document)
-            for outcome, kind in itertools.product(outcomes, kinds):
+            variants = [(o, k, None) for o in outcomes for k in kinds]
+            variants += [(o, "human-asserted", "WAIVER-1") for o in outcomes]
+            for outcome, kind, waiver in variants:
                 report = copy.deepcopy(base)
                 report["obligations"][0]["outcome"] = outcome
                 report["obligations"][0]["evidence"]["kind"] = kind
+                if waiver:
+                    report["obligations"][0]["evidence"]["waiver_id"] = waiver
                 d = decide(policy, report, document)
                 runs += 1
                 nondeterministic += d != decide(policy, report, document)
                 invalid += bool(validate.validate(d, DECISION_SCHEMA))
                 if d["result"] == "accepted":
                     accepted += 1
-                    unsafe += not (outcome == "proven" and kind in engine.MACHINE_CHECKED
-                                   and engine.RANK[kind] >= engine.RANK[required])
+                    unsafe += not safe_acceptance(outcome, kind, waiver, required)
                 if outcome == "failed" and d["result"] != "rejected":
                     unsafe += 1
-    check(runs == 6 * 3 * 7 * 2 * 2 * 6 * 6, f"enumerated {runs} decisions")
+    check(runs == 6 * 3 * 7 * 2 * 2 * 7 * 7, f"enumerated {runs} decisions")
     check(unsafe == 0, "no unsafe acceptance and no failed obligation ever escapes rejection",
           f"    {unsafe} unsafe")
     check(invalid == 0, "every decision is valid for the decision schema", f"    {invalid} invalid")

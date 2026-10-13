@@ -37,6 +37,7 @@ EVIDENCE_LATTICE = ("human-asserted", "llm-corroborated", "runtime-asserted",
                     "property-tested", "machine-checked-model", "kernel-proven")
 RANK = {kind: i for i, kind in enumerate(EVIDENCE_LATTICE)}
 MACHINE_CHECKED = ("machine-checked-model", "kernel-proven")
+EMPIRICAL = ("human-asserted", "llm-corroborated", "runtime-asserted", "property-tested")
 
 
 def _canonical_value(value):
@@ -125,12 +126,24 @@ def _judge(entry, set_obligation, policy, evaluated):
     if outcome == "timeout":
         return _on(policy.get("on_timeout", "reject"), policy, "BLOCK-TIMEOUT",
                    "the check timed out and reached no verdict", oid)
-    if outcome != "proven":  # not-run, unknown, and any value this engine does not know
+    if outcome not in ("proven", "passed"):  # not-run, unknown, and any value this engine does not know
         return _on(policy["on_unknown_evidence"], policy, "BLOCK-NO-VERDICT",
                    f"outcome {outcome!r} is not a verdict", oid)
-    if kind not in MACHINE_CHECKED:
+    if outcome == "proven" and kind not in MACHINE_CHECKED:
         return _violation("BLOCK-PROVEN-WITHOUT-MACHINE-EVIDENCE",
                           f"outcome 'proven' with {kind!r} evidence", oid), None
+    if outcome == "passed":
+        if kind not in EMPIRICAL:
+            return _violation("BLOCK-PASSED-WITHOUT-EMPIRICAL-EVIDENCE",
+                              f"outcome 'passed' with {kind!r} evidence: a machine check that "
+                              "succeeded is a proof", oid), None
+        if kind == "llm-corroborated":
+            return _violation("BLOCK-LLM-NOT-SUFFICIENT",
+                              "a model's corroboration is probabilistic and can never accept an "
+                              "obligation alone", oid), None
+        if kind == "human-asserted" and not evidence.get("waiver_id"):
+            return _violation("BLOCK-WAIVER-MISSING",
+                              "a human assertion needs a recorded waiver", oid), None
     required = set_obligation["required_evidence_kind"]
     if RANK[kind] < RANK[required]:
         return _violation("BLOCK-EVIDENCE-BELOW-REQUIRED",

@@ -43,8 +43,11 @@ Blocks come first and cannot be overridden by any rule. Evidence strength is the
 |---|---|---|---|
 | 1 | outcome `failed` | violation | `BLOCK-FAILED` |
 | 2 | outcome `timeout` | `policy.on_timeout` (`reject` if absent) | `BLOCK-TIMEOUT` |
-| 3 | outcome `not-run`, `unknown`, or any other value | `policy.on_unknown_evidence` | `BLOCK-NO-VERDICT` |
+| 3 | outcome `not-run`, `unknown`, or any other value (not `proven`, not `passed`) | `policy.on_unknown_evidence` | `BLOCK-NO-VERDICT` |
 | 4 | outcome `proven` with evidence that is not machine-checked | violation | `BLOCK-PROVEN-WITHOUT-MACHINE-EVIDENCE` |
+| 4b | outcome `passed` with machine-checked evidence (a machine check that succeeded is `proven`) | violation | `BLOCK-PASSED-WITHOUT-EMPIRICAL-EVIDENCE` |
+| 4c | outcome `passed` with `llm-corroborated` evidence | violation: a model's corroboration is probabilistic and never accepts an obligation alone | `BLOCK-LLM-NOT-SUFFICIENT` |
+| 4d | outcome `passed` with `human-asserted` evidence and no `waiver_id` | violation | `BLOCK-WAIVER-MISSING` |
 | 5 | evidence weaker than the Obligation Set's `required_evidence_kind` | violation | `BLOCK-EVIDENCE-BELOW-REQUIRED` |
 
 Row 4 repeats what the report schema forbids, so the engine does not depend on its input having been schema-checked. Row 5 reads the requirement from the frozen Obligation Set, not from what the report says. An escalation chosen by rows 2 or 3 goes to `policy.escalation.requested_of`, or to `approved_by` if absent.
@@ -62,8 +65,11 @@ Rules are tried in order; the first that decides ends the obligation.
 
 If `report.trust.policy_approval_trusted` is false, an escalation `TRUST-POLICY-APPROVAL` to `approved_by` is added, so the result is at best `needs-human`. The schema already forbids an `accepted` report in that state; the engine never produces one.
 
+## Empirical evidence
+
+Outcome `passed` is the empirical counterpart of `proven`: a property test, a runtime assertion, a recorded human waiver or a model's corroboration completed without finding a problem. It follows the same path as `proven` through the evidence-below-requirement block and the policy rules, so the lattice below `machine-checked-model` is live: a set that requires `property-tested` and a policy whose threshold is `property-tested` accept a passing property test, and a policy that demands `machine-checked-model` does not. `llm-corroborated` never accepts, whatever the policy says (row 4c); `human-asserted` needs a waiver (4d).
+
 ## What this version cannot do
 
-- **Passing empirical evidence is unrepresentable.** The report schema has no outcome meaning "passed" for `property-tested`, `runtime-asserted` or `human-asserted` evidence: `proven` is reserved for machine-checked kinds. Such evidence arrives as `unknown` and is stopped at row 3. So those kinds, and policy values `min_evidence_kind` below `machine-checked-model`, cannot lead to acceptance yet. This is a gap in the report schema to settle before the adapter, not something the engine papers over.
 - `requires_intent_corroboration` can never be met together with a proof, for the same reason (one evidence entry per obligation); an `escalate` guard on it fires for every obligation it reaches.
 - `cost_budget`, `suppression` and the fields a report echoes from the set (`statement`, `kind`, …) are not enforced.

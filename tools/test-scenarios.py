@@ -179,6 +179,34 @@ def scenarios(dafny, solver, version):
     check(gate(tdb.pipeline(dafny, solver, version, policy=reformatted, lock=lock), reformatted, document, lock)["result"] == "accepted",
           "a reformatted, key-reordered policy is the same policy: still accepted")
 
+    heading("Scenario 8d — the agent lowers the evidence the policy accepts")
+    soft = copy.deepcopy(document)
+    soft["obligations"][0]["required_evidence_kind"] = "property-tested"
+    soft_lock = engine.make_lock(POLICY, soft, "project-owner")
+    empirical = tdb.pipeline(dafny, solver, version, document=soft, lock=soft_lock)
+
+    def as_property_test(report):
+        # A property test stands in for the proof: constructed, since only Dafny runs here.
+        e = next(o for o in report["obligations"] if o["obligation_id"] == "OBL-0007")
+        e["outcome"] = "passed"
+        e["evidence"].update(kind="property-tested", soundness="empirical", scope="1000 generated queues")
+        report["decision"] = engine.decide(POLICY, report, soft, soft_lock)
+        return report
+    empirical = as_property_test(empirical)
+    check(tdb.valid(empirical) and empirical["decision"]["result"] == "rejected"
+          and rules(empirical["decision"]) == [("DEFAULT-NO-RULE-DECIDES", "OBL-0007")],
+          "(setup) the approved policy demands machine-checked evidence: a passing property test is rejected "
+          "(DEFAULT-NO-RULE-DECIDES on OBL-0007)", f"    {empirical['decision']}")
+    lowered = copy.deepcopy(POLICY)
+    lowered["rules"][0]["requires"]["min_evidence_kind"] = "property-tested"
+    forged = agent_report(empirical, lowered, soft)
+    check(gate(forged, lowered, soft, None)["result"] == "accepted",
+          "(setup) the same run, under a policy the agent lowered to property-tested, is ACCEPTED when nothing is anchored: "
+          "this edit changes the decision, unlike the edits of 8c")
+    d = gate(forged, lowered, soft, soft_lock)
+    check(d["result"] == "rejected" and rules(d) == [("INTEGRITY-POLICY-NOT-APPROVED", None)],
+          "with the lock it is REJECTED: the policy is not the approved one", f"    {d}")
+
     heading("Scenario 9 — the rejections hold end to end through the command line")
     with tempfile.TemporaryDirectory(prefix="selyth-scn-") as tmp:
         def write(name, doc=None, text=None):
