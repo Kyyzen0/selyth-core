@@ -99,6 +99,8 @@ The reason this is not optional: OpenAI stopped reporting SWE-bench Verified aft
 
 Stated in advance so that they are not renegotiated after the result is known.
 
+**They apply to the full evaluation, not to M6-Lite.** M6-Lite (12 agent runs, one per arm and task, see ADR-004) is a feasibility and directional pilot and cannot trigger any of them; its results are reported task by task and support no general conclusion.
+
 **Remove the intent layer** if it does not measurably reduce false acceptance against Baseline A. The available benchmark evidence predicts this outcome, and the correct response to being right about it is to cut the feature, not to lower the bar. The intent records stay; the corroboration engine does not ship.
 
 **Stop the project** if the fast tier cannot meet 2 seconds on real obligations, or if false rejection exceeds 10% against Baseline A. Either result means the gate would be bypassed or switched off in practice, which is worse than having no gate because the failure would be invisible.

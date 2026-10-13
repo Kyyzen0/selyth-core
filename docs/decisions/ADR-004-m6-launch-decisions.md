@@ -46,7 +46,19 @@ M6 compares arm A (agent + Dafny) with arm B (agent + Dafny + Selyth layer). `co
 ### 4. Measuring human review
 
 - A reviewer external to the project examines only the cases that require a human decision.
-  - **Trigger.** After verification and before any Selyth policy, a required obligation is neither clearly proven nor clearly violated: unknown result, timeout, error, conditional proof or insufficient scope. The rule is identical for both arms and does not depend on arm B's policy outcome.
+  - **Trigger.** After verification and before any Selyth policy, a required obligation is neither clearly proven nor clearly violated. The rule is identical for both arms, is applied to the same evidence report, and does not depend on arm B's policy outcome. It is not left to an operator's reading: it is a set of predicates over the fields of each obligation result of the evidence report (`report-schema.json`), computed by the controller. Every obligation of the frozen Obligation Set is required. Exactly one class applies to a result:
+
+    | Class | Predicate | Review |
+    |---|---|---|
+    | `timeout` | `outcome == timeout` | yes |
+    | `unknown` | `outcome == unknown` | yes |
+    | `insufficient-scope` | `outcome == not-run`, or `outcome` is `proven` or `passed` and `evidence.kind` is weaker than `required_evidence_kind` | yes |
+    | `error` | `outcome == failed` and no diagnostic contains a refutation phrase | yes |
+    | `conditional-proof` | `outcome` is `proven` or `passed`, `evidence.kind` is not weaker than `required_evidence_kind`, and `evidence.assumptions` is not empty | yes |
+    | `clearly-violated` | `outcome == failed` and some diagnostic contains a refutation phrase | no |
+    | `clearly-proven` | `outcome` is `proven` or `passed`, `evidence.kind` is not weaker than `required_evidence_kind`, and `evidence.assumptions` is empty | no |
+
+    "Weaker" follows the order of the evidence kinds in the report schema (`kernel-proven` is the strongest). The free-text `scope` field is never read. The refutation phrases are the closed list `could not be proved`, `might not hold`, `might not decrease`, `might not be`: the report schema does not distinguish a refuted obligation from a tool failure (both are `failed`), so a `failed` result carrying none of these phrases is treated as an `error` and goes to review.
 - They receive the code, the frozen obligations and a standardised evidence package; they never access the hidden oracle.
 - The measurement starts when the review file is opened and stops when a structured verdict is submitted: accept, reject or request information.
 - The form automatically records start, end, verdict and reason; interruptions are reported separately.
@@ -68,6 +80,7 @@ M6-Lite is a feasibility study and a directional comparison, not a robust statis
 - Results are reported **task by task, with raw counts**.
 - **No general conclusion** about performance, statistical significance or security is drawn from 12 runs.
 - M6-Lite does not by itself establish the acceptance criteria of `validation-plan.md`. It informs whether the full evaluation is worth running.
+- **The stopping conditions of `core-v0.1.md` do not apply to M6-Lite.** Removing the intent layer, stopping the project, adding a second backend or narrowing the claims are decisions for the full evaluation, whose data a 12-run pilot cannot supply. An M6-Lite outcome such as no observed difference between the arms, or a false rejection above 10% on six tasks, is reported as it is and triggers none of them.
 - The **full M6** (10 tasks, 3 repetitions per arm, 60 agent runs) is a distinct future evaluation. It is **not started**, it is **not** the launch plan, and its parameters are not decided by this ADR.
 
 ## Consequences
