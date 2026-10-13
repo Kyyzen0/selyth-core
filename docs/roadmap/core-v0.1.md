@@ -56,7 +56,7 @@ M0 through M5 are the prototype. M6 is the experiment that justifies continuing.
 | M4 Policy engine | done; the 21 negative fixtures are replayed through the engine, which rejects each as invalid input | `tools/policy_engine.py`, `policy-engine.md`, `tools/test-policy-engine.py` |
 | M5 Negative scenarios | done | `tools/test-scenarios.py`, `negative-scenarios.md` |
 | Element 6 (about twenty obligations) | done on a purpose-written module, not on an existing third-party project | `docs/specifications/examples/ledger/`, `tools/test-ledger.py` |
-| M6 Evaluation | prepared, not run: protocol, harness, oracle and a scripted corpus; no agent has been run. Launch decisions taken (agent, tasks, resource limits at €0 marginal cost, isolation) | `docs/evaluation/protocol.md`, `tools/evaluate.py`, `tools/test-evaluate.py`; [`ADR-004`](../decisions/ADR-004-m6-launch-decisions.md) |
+| M6 Evaluation | prepared, not run: protocol, harness, oracle and a scripted corpus; no agent has been run. Launch decisions taken for M6-Lite, a zero-marginal-cost pilot (6 tasks, 12 agent runs, 20 minutes and 15 model calls per run, procedural isolation); the full 60-run evaluation is a distinct future one, not started | `docs/evaluation/protocol.md`, `tools/evaluate.py`, `tools/test-evaluate.py`; [`ADR-004`](../decisions/ADR-004-m6-launch-decisions.md) |
 
 Nothing is claimed beyond what the tests check: the proof workspace is generated from the TypeScript by a translator for a pure subset ([`ts-to-dafny.md`](../specifications/ts-to-dafny.md)), but the invariants, the lemmas and the callers that prove preconditions are still written by hand, and the twenty-obligation scenario ran on a module written for the purpose, so how Core fares on someone else's code is still unknown.
 
@@ -98,6 +98,8 @@ The reason this is not optional: OpenAI stopped reporting SWE-bench Verified aft
 ## Stopping conditions
 
 Stated in advance so that they are not renegotiated after the result is known.
+
+**They apply to the full evaluation, not to M6-Lite.** M6-Lite (12 agent runs, one per arm and task, see ADR-004) is a feasibility and directional pilot and cannot trigger any of them; its results are reported task by task and support no general conclusion.
 
 **Remove the intent layer** if it does not measurably reduce false acceptance against Baseline A. The available benchmark evidence predicts this outcome, and the correct response to being right about it is to cut the feature, not to lower the bar. The intent records stay; the corroboration engine does not ship.
 
