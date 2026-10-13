@@ -72,6 +72,7 @@ docs/
   specifications/
     report-schema.json                Verification report schema
     policy-schema.json                Acceptance policy schema
+    validation-layers.md              What JSON Schema enforces vs. what the policy engine must
   roadmap/
     core-v0.1.md                      Minimal prototype scope and milestones
     language-evolution.md             Core to the universal language
@@ -99,6 +100,8 @@ This builds a virtualenv (`.venv`, Python 3.9 or newer) from the hash-locked `re
 
 1. **`tools/test-validation.py`, the primary suite**, under the independent [`jsonschema`](https://python-jsonschema.readthedocs.io/) library, pinned, in its Draft 2020-12 mode. It replays the 23 fixtures of `tools/test-schemas.py` unchanged: two valid documents that must pass and twenty-one that must fail. For every rejection it also requires that the *intended* rule is among the reported errors, because a fixture that fails for an unrelated reason proves nothing. It further checks that each schema is a valid Draft 2020-12 schema with no duplicate key, no unknown keyword and no dangling `$ref`, so a schema cannot quietly rely on a rule that is never checked.
 2. **`tools/test-schemas.py`, the original suite**, under `tools/minischema.py`, kept as a secondary check.
+
+Some rules cannot be expressed in JSON Schema at all, such as a policy digest that must equal the digest recorded in the decision. The suite lists those as `[gap ]` lines: documents that are structurally valid but must be refused by the policy engine, which does not exist yet. They are known holes, not failures, and the split is documented in [`docs/specifications/validation-layers.md`](docs/specifications/validation-layers.md).
 
 Without `make`:
 
