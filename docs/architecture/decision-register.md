@@ -25,7 +25,7 @@
 | D-04 | Intent is a separately-graded object, never folded into the proof chain | The intent gap is unsolved; a 96.3% probabilistic check must not be able to produce a "verified" label | ADR-003 |
 | D-05 | Evidence strength, outcome and provenance are three orthogonal axes | Collapsing them is the most common error in this design space; the report schema enforces the separation | `verification-engine.md` |
 | D-06 | Acceptance is a total, deterministic function of (policy, report) | Replayability and diffability; a disputed decision can be re-derived rather than argued | `core-components.md` |
-| D-07 | Schema-enforced claim ceilings | 16 of 18 report test cases assert that overclaiming is structurally impossible | `tools/test-schemas.py` |
+| D-07 | Schema-enforced claim ceilings | every conditional rule of the report schema is exercised by a fixture rejected for the intended reason, and the suite fails if one is not | `tools/test-validation.py` |
 | D-08 | The additions-only invariant on proof artifacts | Tamper detection with no trusted third party — the only such mechanism available at €0 | `security-model.md` |
 | D-09 | Bind to content digests, never to branches | A result applied to changed code is not a result | in-toto / SLSA convention |
 | D-10 | Suppression is `forbidden` in V0.1 | Suppression is the practical path to policy weakening; nothing is lost by starting without it | `policy-schema.json` |

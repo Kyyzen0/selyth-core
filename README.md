@@ -4,9 +4,9 @@
 
 Selyth is an experimental open-source project on trustworthy AI-assisted software development. Its long-term ambition is a universal programming language designed jointly for human developers and AI agents. Its first deliverable is not that language — it is the verification foundation such a language would need, built now, against an existing prover, on an ordinary machine, at zero marginal cost.
 
-**Status:** Design phase. No implementation exists. Every architectural choice is recorded with an explicit status in [`docs/architecture/decision-register.md`](docs/architecture/decision-register.md), so that no open question silently becomes a decision.
+**Status:** The Core prototype (milestones M0 to M5 of [`docs/roadmap/core-v0.1.md`](docs/roadmap/core-v0.1.md)) is implemented and tested; the evaluation (M6), the TypeScript-to-Dafny translation and the language are not. The architecture is still a design: every architectural choice is recorded with an explicit status in [`docs/architecture/decision-register.md`](docs/architecture/decision-register.md), so that no open question silently becomes a decision.
 
-> **Next implementation work:** read [`docs/audit-phase-a.md`](docs/audit-phase-a.md) and the ordered work items in [`docs/roadmap/next-tasks-for-claude.md`](docs/roadmap/next-tasks-for-claude.md). They address the data and policy contracts required before the TypeScript adapter begins.
+> **Where things stand:** run `make test` (see below). What is done and what remains is in [`docs/roadmap/next-tasks-for-claude.md`](docs/roadmap/next-tasks-for-claude.md); the audit that preceded the implementation is [`docs/audit-phase-a.md`](docs/audit-phase-a.md), kept as written.
 
 ## The four stages
 
@@ -25,7 +25,7 @@ A human writes down obligations — preconditions, postconditions, invariants, t
 
 Three properties do the work:
 
-**Reports cannot overclaim their evidence.** The JSON Schema encodes the ceilings structurally. An obligation with outcome `proven` requires a machine-checked evidence kind, so a language model cannot produce a proof. A timed-out check may carry no soundness claim at all. A local subprocess may not claim it ran outside the agent's boundary. Twenty-one of the twenty-one negative test cases assert that overclaiming, stale-policy reuse and self-attestation all fail validation.
+**Reports cannot overclaim their evidence.** The JSON Schema encodes the ceilings structurally. An obligation with outcome `proven` requires a machine-checked evidence kind, so a language model cannot produce a proof. A timed-out check may carry no soundness claim at all. A local subprocess may not claim it ran outside the agent's boundary. Every conditional rule of the schemas is exercised by a fixture that must be rejected for the intended reason, and the suite fails if a rule has none. Overclaiming, stale-policy reuse and self-attestation all fail validation.
 
 **Evidence strength, outcome and provenance are three separate axes.** Whether something was proven, how well it was proven, and who proved it are recorded independently. Collapsing them into a single status is the most common error in this design space and the one that turns a gate into a label.
 
@@ -148,7 +148,7 @@ To validate one document against one schema: `.venv/bin/python tools/validate.py
 
 ## Requirements
 
-Nothing to run today. The design targets a €0 marginal-cost stack: MIT-licensed Dafny, Boogie and Z3, invoked as a subprocess; one ordinary machine; no paid API; no cloud infrastructure; no model required for execution, verification or acceptance. Models propose. They are never part of the decision function.
+The full test suite needs Python 3.9 or newer, Node 24 or newer and Dafny 4.11.0 (`make test`; see *Running the schema tests*). The design targets a €0 marginal-cost stack: MIT-licensed Dafny, Boogie and Z3, invoked as a subprocess; one ordinary machine; no paid API; no cloud infrastructure; no model required for execution, verification or acceptance. Models propose. They are never part of the decision function.
 
 ## Licence and contributing
 

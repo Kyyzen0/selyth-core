@@ -1,6 +1,6 @@
 # Selyth Core V0.1 — Prototype Scope and Milestones
 
-**Status:** Design phase. Nothing in this document has been implemented.
+**Status:** Milestones M0 to M5 are implemented (see *Status of the milestones*); M6, the evaluation, is not. The scope and the milestone definitions below are kept as written.
 **Depends on:** `docs/architecture/overview.md`, `docs/architecture/decision-register.md`.
 
 ## Scope boundary
@@ -29,7 +29,7 @@ Everything in V0.1 exists to make that question answerable. Anything that does n
 
 Each milestone ends in something runnable and checkable. A milestone that cannot be demonstrated is not complete.
 
-**M0 — Schemas and their tests.** The two JSON schemas exist, a minimal validator covers the keywords used, and the negative test suite passes. This milestone is already complete in the design phase: `docs/specifications/*.json`, `tools/minischema.py`, `tools/test-schemas.py`, 23 cases, 18 of which must fail validation.
+**M0 — Schemas and their tests.** The two JSON schemas exist, a minimal validator covers the keywords used, and the negative test suite passes. This milestone is already complete in the design phase: `docs/specifications/*.json`, `tools/minischema.py`, `tools/test-schemas.py`, 23 cases, 21 of which must fail validation.
 
 **M1 — Obligation Set and its digest.** Read an Obligation Set, validate it, compute its digest, and refuse to proceed if the digest changes mid-run. Exit code is the contract. **Done when:** running the tool twice on the same input yields the same digest, and editing one character yields a different one.
 
@@ -37,13 +37,28 @@ Each milestone ends in something runnable and checkable. A milestone that cannot
 
 **M3 — Dafny backend.** Invoke Dafny as a subprocess, capture the result, and emit a report entry. **Done when:** a known-correct obligation yields `kernel-proven`, and the report validates against the schema.
 
-**M4 — Policy engine.** Evaluate (policy, report) into a decision, with every rejection naming the rule that produced it. **Done when:** the schema test fixtures, which include six policy-level and twelve report-level negative cases, are replayed as unit tests against the real engine rather than the schema alone.
+**M4 — Policy engine.** Evaluate (policy, report) into a decision, with every rejection naming the rule that produced it. **Done when:** the schema test fixtures, which include five policy-level and sixteen report-level negative cases, are replayed as unit tests against the real engine rather than the schema alone.
 
 **M5 — The negative scenarios.** The intentionally incorrect implementation, the policy-weakening attempt, and the rejection test. **Done when:** the incorrect change is rejected with a named obligation; the weakened policy is detected by digest mismatch; the test asserting rejection passes.
 
 **M6 — The evaluation.** Run Baseline A and Experimental B on a held-out task set and report the metrics below.
 
 M0 through M5 are the prototype. M6 is the experiment that justifies continuing.
+
+### Status of the milestones
+
+| Milestone | State | Where |
+|---|---|---|
+| M0 Schemas and their tests | done | `docs/specifications/`, `tools/test-schemas.py`, `tools/test-validation.py` |
+| M1 Obligation Set and its digest | done | `tools/obligation_set.py`, `obligation-set-canonicalization.md` |
+| M2 TypeScript adapter | done, in Python and in TypeScript, byte-identical | `tools/ts_adapter.py`, `ts/`, `verification-ir.md` |
+| M3 Dafny backend | done, against Dafny 4.11.0 | `tools/dafny_backend.py`, `dafny-backend.md` |
+| M4 Policy engine | done | `tools/policy_engine.py`, `policy-engine.md` |
+| M5 Negative scenarios | done | `tools/test-scenarios.py`, `negative-scenarios.md` |
+| M6 Evaluation | not started | needs decisions on the agent, the tasks and the budget |
+
+Nothing is claimed beyond what the tests check: the proof workspace models the implementation by hand (no TypeScript-to-Dafny translation yet), and element 6 of the table above (about twenty obligations from one real project) has not been run.
+
 
 ## Evaluation
 
@@ -100,7 +115,7 @@ No compiler. No Selyth Language. No type system. No effect system. No parser. No
 Ordered so that each is independently verifiable and none can be "done" by a plausible-looking artefact.
 
 **Task 1 — Replace the schema validator with a real one, and keep the negative tests.**
-`tools/minischema.py` covers only the JSON Schema keywords these two schemas use, and it was written alongside them, so it cannot be wrong in a way that hides a bug in the schema. Before any implementation work begins, the fixtures in `tools/test-schemas.py` should be replayed against a production validator, and the 18 negative cases must still fail. *Done when:* the fixtures run under an independent validator with the same 18 rejections.
+`tools/minischema.py` covers only the JSON Schema keywords these two schemas use, and it was written alongside them, so it cannot be wrong in a way that hides a bug in the schema. Before any implementation work begins, the fixtures in `tools/test-schemas.py` should be replayed against a production validator, and the 21 negative cases must still fail. *Done when:* the fixtures run under an independent validator with the same 21 rejections.
 
 **Task 2 — Implement the Obligation Set digest and its invariance test.**
 Read an Obligation Set, validate it against a schema, canonicalise it, and compute a SHA-256 digest that is stable under reordering and formatting but changes under any semantic edit. *Done when:* reordering keys and reindenting produce an identical digest, and changing one character of one obligation produces a different one.

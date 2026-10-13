@@ -1,6 +1,6 @@
 # Selyth — Architecture Overview
 
-**Status:** Design phase. No implementation exists.
+**Status:** Design phase for the architecture. The Core prototype (milestones M0 to M5 of `docs/roadmap/core-v0.1.md`) is implemented; the language is not.
 **Depends on:** Phase C research (see `docs/research/prior-art.md`, `docs/research/technical-risks.md`).
 
 ## The four stages
