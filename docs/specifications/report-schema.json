@@ -257,8 +257,9 @@
             "required": ["kind"]
           },
           "then": {
+            "description": "A kernel check supports fragment soundness only when it reached a proof. A check that did not (timeout, not run, unknown) claims 'none': the obligation_result rules forbid any stronger claim without a verdict, and require one with a proof.",
             "properties": {
-              "soundness": { "const": "sound-for-fragment" },
+              "soundness": { "enum": ["sound-for-fragment", "none"] },
               "semantic_gap": { "type": "null" }
             },
             "required": ["cost"]
@@ -271,7 +272,7 @@
           },
           "then": {
             "properties": {
-              "soundness": { "const": "sound-for-model" },
+              "soundness": { "enum": ["sound-for-model", "none"] },
               "semantic_gap": { "minLength": 1 }
             },
             "required": ["semantic_gap"]
@@ -409,6 +410,22 @@
               "evidence": {
                 "properties": {
                   "kind": { "enum": ["kernel-proven", "machine-checked-model"] }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "outcome": { "const": "proven" } },
+            "required": ["outcome"]
+          },
+          "then": {
+            "description": "A proof supports a soundness claim. Together with the kind rules this leaves exactly sound-for-fragment for kernel-proven and sound-for-model for machine-checked-model.",
+            "properties": {
+              "evidence": {
+                "properties": {
+                  "soundness": { "enum": ["sound-for-fragment", "sound-for-model"] }
                 }
               }
             }

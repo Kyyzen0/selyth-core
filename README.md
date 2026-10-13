@@ -72,6 +72,7 @@ docs/
   specifications/
     report-schema.json                Verification report schema
     policy-schema.json                Acceptance policy schema
+    dafny-backend.md                  Dafny backend: workspace markers, outcomes, trust escapes, the report
     verification-ir.md                Verification IR (L2), reproducibility key, lowering rules
     verification-ir-schema.json       Verification IR schema
     policy-engine.md                  Normative semantics of (policy, report, obligation set) -> decision
@@ -92,6 +93,8 @@ requirements.in / requirements.txt    Direct dependencies / hash-locked environm
 tools/
   validate.py                         Independent Draft 2020-12 validator (jsonschema)
 ts/                                   TypeScript port of the adapter (src/), tests against the Python adapter (test/)
+  dafny_backend.py                    Dafny backend: IR + proof workspace -> report (decided by the engine)
+  test-dafny-backend.py               Backend tests against a real Dafny
   ts_adapter.py                       TypeScript adapter: Obligation Set -> Verification IR (deterministic)
   test-ts-adapter.py                  Adapter tests: byte-identical IR, reproducibility key, lowering
   policy_engine.py                    Deterministic policy engine: decide, replay, policy digest
@@ -109,7 +112,7 @@ ts/                                   TypeScript port of the adapter (src/), tes
 make test
 ```
 
-This builds a virtualenv (`.venv`, Python 3.9 or newer) from the hash-locked `requirements.txt`, runs the Python suites below, then the TypeScript port's tests. `make test-python` skips the port (no Node needed); `make test-ts` runs only the port and needs Node 24 or newer (`make test NODE_BIN=/path/to/node/bin` if it is not on `PATH`). The suites:
+This builds a virtualenv (`.venv`, Python 3.9 or newer) from the hash-locked `requirements.txt`, runs the Python suites below, the Dafny backend's tests, then the TypeScript port's tests. `make test-python` needs neither Node nor Dafny; `make test-dafny` needs Dafny 4.11.0 (`SELYTH_DAFNY=/path/to/dafny`, default `~/.local/opt/dafny/dafny`); `make test-ts` needs Node 24 or newer (`make test NODE_BIN=/path/to/node/bin` if it is not on `PATH`). The suites:
 
 1. **`tools/test-validation.py`, the primary suite**, under the independent [`jsonschema`](https://python-jsonschema.readthedocs.io/) library, pinned, in its Draft 2020-12 mode. It replays the 23 fixtures of `tools/test-schemas.py` unchanged: two valid documents that must pass and twenty-one that must fail. For every rejection it also requires that the *intended* rule is among the reported errors, because a fixture that fails for an unrelated reason proves nothing. It further checks that each schema is a valid Draft 2020-12 schema with no duplicate key, no unknown keyword and no dangling `$ref`, so a schema cannot quietly rely on a rule that is never checked.
 2. **`tools/test-schemas.py`, the original suite**, under `tools/minischema.py`, kept as a secondary check.
@@ -119,6 +122,7 @@ Some rules cannot be expressed in JSON Schema at all, such as a policy digest th
 4. **`tools/test-policy-engine.py`**, the policy engine suite: every integrity failure, block, default and escalation yields the decision the specification gives; over every combination of outcome, evidence kind and rule, `accepted` is never produced for evidence weaker than required; decisions are byte-identical across runs, hash seeds and input orderings, and `decide` touches no file, socket, process, clock or randomness.
 5. **`tools/test-ts-adapter.py`**, the adapter suite: regenerating the Verification IR gives a byte-identical file across runs, processes, hash seeds, time zones, locales and working directories, and for any formatting or ordering of the Obligation Set; the reproducibility key changes with each of its inputs (Obligation Set digest, adapter name and version, verification tool name and version, IR version); no obligation is ever dropped.
 6. **`ts/` (`npm test`)**, the TypeScript port of the adapter: typechecked (`tsc --strict`), and compared **byte for byte** with the Python adapter on the demonstration set and on a rich set (Unicode normalisation, code point ordering, many assumptions, unsupported obligations, a 5,000-digit literal), plus the same vectors and golden as the Python suite.
+7. **`tools/test-dafny-backend.py`**, the Dafny backend suite, against a **real Dafny**: known-correct obligations are `kernel-proven` and the report validates; a false obligation is `failed` and named by the policy engine; an `assume {:axiom}` that Dafny itself would accept cannot launder a false obligation; resource exhaustion is a `timeout`; a missing marker or an unlowerable obligation is `not-run`; an IR for another Dafny version is refused.
 
 Without `make`:
 
@@ -127,6 +131,8 @@ python3 -m venv .venv
 .venv/bin/pip install --require-hashes -r requirements.txt
 .venv/bin/python tools/test-validation.py
 ```
+
+To verify with Dafny and decide: `.venv/bin/python tools/dafny_backend.py verify --ir ir.json --workspace docs/specifications/examples/queue.workspace.dfy --obligation-set docs/specifications/examples/queue.obligations.json --policy docs/specifications/examples/queue.policy.json` prints the report (exit 0 accepted, 1 rejected, 3 needs-human, 2 error); see [`docs/specifications/dafny-backend.md`](docs/specifications/dafny-backend.md).
 
 To lower an Obligation Set: `.venv/bin/python tools/ts_adapter.py lower <obligation-set.json> --backend-version 4.11.0`. The format and the key are in [`docs/specifications/verification-ir.md`](docs/specifications/verification-ir.md).
 
