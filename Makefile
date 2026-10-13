@@ -19,6 +19,9 @@ test: venv
 	@echo "== Policy engine: decisions, safety, determinism, replay"
 	$(VPY) tools/test-policy-engine.py
 	@echo
+	@echo "== TypeScript adapter: Verification IR determinism"
+	$(VPY) tools/test-ts-adapter.py
+	@echo
 	@echo "== Legacy suite (tools/test-schemas.py, tools/minischema.py), kept as a secondary check"
 	$(VPY) tools/test-schemas.py
 

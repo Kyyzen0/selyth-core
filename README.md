@@ -72,6 +72,8 @@ docs/
   specifications/
     report-schema.json                Verification report schema
     policy-schema.json                Acceptance policy schema
+    verification-ir.md                Verification IR (L2), reproducibility key, lowering rules
+    verification-ir-schema.json       Verification IR schema
     policy-engine.md                  Normative semantics of (policy, report, obligation set) -> decision
     obligation-set-schema.json        Obligation Set schema (the frozen verification input)
     obligation-set-canonicalization.md  Canonical form, digest, and report coverage rules
@@ -89,6 +91,8 @@ Makefile                              `make test`: builds the pinned venv, runs 
 requirements.in / requirements.txt    Direct dependencies / hash-locked environment
 tools/
   validate.py                         Independent Draft 2020-12 validator (jsonschema)
+  ts_adapter.py                       TypeScript adapter: Obligation Set -> Verification IR (deterministic)
+  test-ts-adapter.py                  Adapter tests: byte-identical IR, reproducibility key, lowering
   policy_engine.py                    Deterministic policy engine: decide, replay, policy digest
   test-policy-engine.py               Engine tests: scenarios, exhaustive safety, determinism, replay
   obligation_set.py                   Validate, canonicalise, hash an Obligation Set; check report coverage
@@ -112,6 +116,7 @@ This builds a virtualenv (`.venv`, Python 3.9 or newer) from the hash-locked `re
 
 Some rules cannot be expressed in JSON Schema at all, such as a policy digest that must equal the digest recorded in the decision. Those are enforced by the policy engine; the split is documented in [`docs/specifications/validation-layers.md`](docs/specifications/validation-layers.md).
 4. **`tools/test-policy-engine.py`**, the policy engine suite: every integrity failure, block, default and escalation yields the decision the specification gives; over every combination of outcome, evidence kind and rule, `accepted` is never produced for evidence weaker than required; decisions are byte-identical across runs, hash seeds and input orderings, and `decide` touches no file, socket, process, clock or randomness.
+5. **`tools/test-ts-adapter.py`**, the adapter suite: regenerating the Verification IR gives a byte-identical file across runs, processes, hash seeds, time zones, locales and working directories, and for any formatting or ordering of the Obligation Set; the reproducibility key changes with each of its inputs (Obligation Set digest, adapter name and version, verification tool name and version, IR version); no obligation is ever dropped.
 
 Without `make`:
 
@@ -120,6 +125,8 @@ python3 -m venv .venv
 .venv/bin/pip install --require-hashes -r requirements.txt
 .venv/bin/python tools/test-validation.py
 ```
+
+To lower an Obligation Set: `.venv/bin/python tools/ts_adapter.py lower <obligation-set.json> --backend-version 4.11.0`. The format and the key are in [`docs/specifications/verification-ir.md`](docs/specifications/verification-ir.md).
 
 To decide: `.venv/bin/python tools/policy_engine.py decide <policy.json> <report.json> <obligation-set.json>` (exit 0 accepted, 1 rejected, 3 needs-human, 2 invalid input), or `replay` to check that a report's recorded decision is the engine's. The semantics are in [`docs/specifications/policy-engine.md`](docs/specifications/policy-engine.md).
 
