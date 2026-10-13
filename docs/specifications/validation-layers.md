@@ -20,7 +20,7 @@ JSON Schema **cannot** state:
 
 ## Layer 2 — semantic validation (policy engine)
 
-**Owner:** the deterministic policy engine, `(policy, report, obligation_set) -> decision` (`docs/roadmap/next-tasks-for-claude.md`, tasks 2 and 3). **Not implemented yet.** A document that passes layer 1 is well-formed, not consistent.
+**Owner:** the deterministic policy engine (coverage of an Obligation Set by a report is already checked by `tools/obligation_set.py`, see [`obligation-set-canonicalization.md`](obligation-set-canonicalization.md)), `(policy, report, obligation_set) -> decision` (`docs/roadmap/next-tasks-for-claude.md`, tasks 2 and 3). **Not implemented yet.** A document that passes layer 1 is well-formed, not consistent.
 
 ## Where each invariant lives
 
@@ -38,8 +38,8 @@ JSON Schema **cannot** state:
 | The policy digest is the digest of the canonical policy content | **semantic** | nothing yet, needs canonicalisation (task 2) | none |
 | `rules_evaluated` is the number of rules the engine really evaluated | **semantic** | nothing yet | none |
 | `decision.result` is what the policy yields for the obligations' outcomes and evidence | **semantic** | nothing yet | none |
-| The report lists every obligation of the Obligation Set exactly once, with the same id and digest | **semantic** | nothing yet (task 2) | none |
-| `obligation_id` values are unique within a report | **semantic** | nothing yet | none |
+| The report lists every obligation of the Obligation Set exactly once, with the same id and digest, and names the set digest | **semantic** | `tools/obligation_set.py cover` (`check_coverage`) | `tools/test-obligation-set.py`, "Coverage" |
+| `obligation_id` values are unique within a report, and within an Obligation Set | **semantic** | `check_coverage` (report), `parse_obligation_set` (set) | same |
 | `min_evidence_kind` compares positions on the evidence lattice, not on JSON enum order | **semantic** | nothing yet (task 3) | none |
 
 The last row matters because `enum` order carries no meaning in JSON Schema, so the "normative order" stated in a schema description is not something layer 1 can check.
