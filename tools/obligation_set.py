@@ -113,7 +113,11 @@ def parse_obligation_set(text):
 
 
 def load_obligation_set(path):
-    return parse_obligation_set(Path(path).read_text(encoding="utf-8"))
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise ObligationSetError(f"not valid UTF-8: {exc.reason}") from exc
+    return parse_obligation_set(text)
 
 
 def check_coverage(obligation_set, report):

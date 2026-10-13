@@ -146,6 +146,23 @@ test("ordering is by code point, not by UTF-16 code unit", () => {
   assert.ok("😀" < "～");
 });
 
+test("malformed UTF-8 is refused by both adapters, not repaired to U+FFFD", () => {
+  const dir = mkdtempSync(join(tmpdir(), "selyth-ts-"));
+  try {
+    const original = readFileSync(demoPath);
+    const at = original.indexOf(Buffer.from("Bounded queue")) + 7;
+    const corrupted = Buffer.concat([original.subarray(0, at), Buffer.from([0xff, 0xfe]), original.subarray(at)]);
+    const path = join(dir, "bad.json");
+    writeFileSync(path, corrupted);
+    assert.equal(tsCli(path).status, 1);
+    assert.equal(pythonLower(path).status, 1);
+    assert.match(tsCli(path).stderr, /UTF-8/);
+    assert.match(pythonLower(path).stderr, /UTF-8/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("the CLI exits 2 without --backend-version and 1 on an invalid set", () => {
   assert.equal(spawnSync(process.execPath, [join(root, "ts/src/cli.ts"), "lower", demoPath], { encoding: "utf8" }).status, 2);
   assert.equal(tsCli(join(root, "docs/specifications/report-schema.json")).status, 1);

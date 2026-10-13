@@ -1,22 +1,22 @@
 // Usage: node src/cli.ts lower <obligation-set.json> --backend-version <version>
 import { readFileSync } from "node:fs";
 import { lower, render } from "./adapter.ts";
-import { ObligationSetError, parseObligationSet } from "./canonical.ts";
+import { ObligationSetError, decodeUtf8, parseObligationSet } from "./canonical.ts";
 
 const argv = process.argv.slice(2);
 if (argv.length !== 4 || argv[0] !== "lower" || argv[2] !== "--backend-version" || !argv[3]) {
   console.log("usage: cli.ts lower <obligation-set.json> --backend-version <version>");
   process.exit(2);
 }
-let text: string;
+let bytes: Buffer;
 try {
-  text = readFileSync(argv[1] as string, "utf8");
+  bytes = readFileSync(argv[1] as string);
 } catch (e) {
   console.error(`[ERROR] ${(e as Error).message}`);
   process.exit(2);
 }
 try {
-  process.stdout.write(render(lower(parseObligationSet(text), argv[3])));
+  process.stdout.write(render(lower(parseObligationSet(decodeUtf8(bytes)), argv[3])));
 } catch (e) {
   if (e instanceof ObligationSetError) {
     console.error(`[FAIL] ${argv[1]}: ${e.message}`);

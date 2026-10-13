@@ -89,6 +89,15 @@ export function sha256Text(text: string): string {
   return digestOf(text);
 }
 
+/** Decode UTF-8 strictly: readFileSync(path, "utf8") would silently turn malformed bytes into U+FFFD. */
+export function decodeUtf8(bytes: Uint8Array): string {
+  try {
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+  } catch {
+    throw new ObligationSetError("not valid UTF-8");
+  }
+}
+
 const schemaUrl = new URL("../../docs/specifications/obligation-set-schema.json", import.meta.url);
 
 /** Parse strictly, validate against the shared JSON Schema, then run the semantic checks. */
