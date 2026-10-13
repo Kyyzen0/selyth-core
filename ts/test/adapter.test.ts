@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { ADAPTER_VERSION, canonicalExpression, lower, render } from "../src/adapter.ts";
+import { ADAPTER_VERSION, PYTHON_WHITESPACE, canonicalExpression, lower, render } from "../src/adapter.ts";
 import { ObligationSetError, compareCodePoints, parseObligationSet, setDigest, type Obligation, type ObligationSet } from "../src/canonical.ts";
 import { parseStrict, StrictJsonError } from "../src/json.ts";
 
@@ -17,7 +17,7 @@ const root = fileURLToPath(new URL("../..", import.meta.url));
 const demoPath = join(root, "docs/specifications/examples/queue.obligations.json");
 const python = process.env["SELYTH_PYTHON"] ?? join(root, ".venv/bin/python");
 const BACKEND = "4.11.0";
-const GOLDEN = "sha256:43927706b65744926224a5dfc7ecc128ff008ba3df6dba3a058d95da8eb11e19";
+const GOLDEN = "sha256:4f20d0d13af2656c2f3c6b15c83f0c9260d0385799ecc4b53fd2c1f1952499eb";
 
 const demo = (): ObligationSet => parseObligationSet(readFileSync(demoPath, "utf8"));
 const lowered = (d: ObligationSet = demo()): string => render(lower(d, BACKEND));
@@ -86,7 +86,7 @@ test("set digests agree with the Python tool", () => {
 });
 
 test("the demonstration IR equals the golden pinned by the Python suite, and the version matches", () => {
-  assert.equal(ADAPTER_VERSION, "0.2.0");
+  assert.equal(ADAPTER_VERSION, "0.2.1");
   assert.equal("sha256:" + createHash("sha256").update(lowered()).digest("hex"), GOLDEN);
 });
 
@@ -149,4 +149,39 @@ test("ordering is by code point, not by UTF-16 code unit", () => {
 test("the CLI exits 2 without --backend-version and 1 on an invalid set", () => {
   assert.equal(spawnSync(process.execPath, [join(root, "ts/src/cli.ts"), "lower", demoPath], { encoding: "utf8" }).status, 2);
   assert.equal(tsCli(join(root, "docs/specifications/report-schema.json")).status, 1);
+});
+
+test("whitespace is exactly Python's str.isspace() set, over every code point", () => {
+  const py = spawnSync(python, ["-c", "print(','.join(str(c) for c in range(0x110000) if chr(c).isspace()))"], { encoding: "utf8" });
+  assert.equal(py.status, 0, py.stderr);
+  const expected = new Set(py.stdout.trim().split(",").map(Number));
+  const ours = new Set<number>();
+  for (let c = 0; c < 0x110000; c++) if (PYTHON_WHITESPACE.test(String.fromCodePoint(c))) ours.add(c);
+  assert.deepEqual([...ours].sort((a, b) => a - b), [...expected].sort((a, b) => a - b));
+  assert.ok(!ours.has(0xfeff) && ours.has(0x85) && ours.has(0x1c)); // where ECMAScript's \s differs
+});
+
+test("differential: odd whitespace, astral and control characters lower identically in both adapters", () => {
+  const chars = [..." \t\n\v\f\r\x1c\x1d\x1e\x1f\x85\xa0\u1680\u2000\u200a\u2028\u2029\u202f\u205f\u3000",
+                 "\ufeff", "\u180e", "\u200b", "\u200c", "\u2060", "\0", "\x7f", "\x01", "é", "e\u0301", "😀", "\u{10FFFF}", "\uFF5E", "#", "$", "\\", "'", "`", "~", "@", "?", "[", "{", ",", ";", ":"];
+  const d = demo();
+  const base = d.obligations[0] as Obligation;
+  d.obligations = [];
+  let n = 0;
+  const add = (kind: string, statement: string): void => {
+    d.obligations.push({ ...structuredClone(base), obligation_id: `F-${String(n++).padStart(4, "0")}`, kind, statement });
+  };
+  for (const c of chars) {
+    for (const statement of [`ensures${c}x > 0`, `ensures x >${c}0`, `ensures x > 0${c}`, `${c}ensures x > 0`, `ensures x ${c} 0`, `ensures${c}`, `ensures x > ${c}`, `ensures ${c}`]) add("postcondition", statement);
+    add("invariant", `invariant 0 <=${c}i`);
+  }
+  withFile(d, (path) => {
+    const py = pythonLower(path);
+    assert.equal(py.status, 0, py.stderr);
+    const ts = tsCli(path);
+    assert.equal(ts.status, 0, ts.stderr);
+    assert.equal(ts.stdout, py.stdout);
+    const ir = JSON.parse(py.stdout) as { units: unknown[]; unsupported: unknown[] };
+    assert.ok(ir.units.length > 20 && ir.unsupported.length > 20, "the fuzz set exercises both outcomes");
+  });
 });
