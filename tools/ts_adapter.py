@@ -22,8 +22,8 @@ import obligation_set as oset
 
 ADAPTER_NAME = "selyth-ts-adapter"
 # Changing what `lower` emits for any input requires changing this value.
-ADAPTER_VERSION = "0.1.0"
-IR_VERSION = "0.1.0"
+ADAPTER_VERSION = "0.2.0"
+IR_VERSION = "0.2.0"
 BACKEND_NAME = "dafny"
 
 CLAUSES = {"precondition": "requires", "postcondition": "ensures",
@@ -135,7 +135,7 @@ class _Parser:
         if token in ("true", "false"):
             return ("bool", token)
         if re.fullmatch(r"[0-9]+", token):
-            return ("int", str(int(token)))
+            return ("int", token.lstrip("0") or "0")  # textual: int() is length-limited
         if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", token):
             return ("id", token)
         raise ExpressionError(f"unexpected {token!r}")
@@ -220,13 +220,19 @@ def lower(document, backend_version):
     for obligation in canonical["obligations"]:  # already sorted by obligation_id
         oid = obligation["obligation_id"]
         outcome, value = _lower_obligation(obligation)
+        # Everything a report entry needs travels in the IR, so L3 never rereads L1.
+        entry = {"obligation_id": oid, "obligation_digest": digests[oid], "kind": obligation["kind"],
+                 "statement": obligation["statement"],
+                 "required_evidence_kind": obligation["required_evidence_kind"]}
+        if "intent_statement" in obligation:
+            entry["intent_statement"] = obligation["intent_statement"]
         if outcome == "unit":
-            units.append({"obligation_id": oid, "obligation_digest": digests[oid], "clause": value,
+            units.append({**entry, "clause": value,
                           "context": {"assumptions": obligation["assumptions"],
                                       "affected_components": obligation["affected_components"]}})
         else:
-            unsupported.append({"obligation_id": oid, "obligation_digest": digests[oid],
-                                "kind": obligation["kind"], "reason": value})
+            unsupported.append({**entry, "affected_components": obligation["affected_components"],
+                                "reason": value})
     return {"selyth_ir_version": IR_VERSION,
             "reproducibility_key": reproducibility_key(digest, backend_version),
             "obligation_set": {"digest": digest, "set_id": canonical["set_id"],

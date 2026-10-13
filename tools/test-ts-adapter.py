@@ -55,8 +55,8 @@ DEMO = osets.DEMO
 BACKEND = "4.11.0"
 # Pinned: if the adapter's output for the demonstration set changes, ADAPTER_VERSION must
 # change with it, and this value be updated in the same commit.
-GOLDEN = {"adapter_version": "0.1.0",
-          "sha256": "sha256:71af04fc40885eaa7f6c5971bfc51611f764f7f4092be50287761a62ec525ba9"}
+GOLDEN = {"adapter_version": "0.2.0",
+          "sha256": "sha256:43927706b65744926224a5dfc7ecc128ff008ba3df6dba3a058d95da8eb11e19"}
 
 
 def lowered(document=None, backend=BACKEND):
@@ -186,7 +186,7 @@ def check_key():
         changed("adapter version", ir)
     with mock.patch.object(adapter, "ADAPTER_NAME", "another-adapter"):
         changed("adapter name", adapter.lower(osets.demo(), BACKEND))
-    with mock.patch.object(adapter, "IR_VERSION", "0.2.0"):
+    with mock.patch.object(adapter, "IR_VERSION", "9.9.9"):
         changed("IR version", adapter.lower(osets.demo(), BACKEND))
     renamed = osets.demo()
     renamed["title"] = "Another title"
@@ -218,6 +218,14 @@ def check_lowering():
           "assumptions and components travel as context (sorted)")
     check(not re.search(r"\bassume\b", json.dumps([u["clause"] for u in ir["units"]])),
           "assumptions are never lowered to `assume`")
+    canonical = {o["obligation_id"]: o for o in oset.canonical_form(osets.demo())["obligations"]}
+    check(all(u[f] == canonical[u["obligation_id"]][f] for u in ir["units"]
+              for f in ("kind", "statement", "required_evidence_kind"))
+          and [u.get("intent_statement") for u in ir["units"]]
+          == [canonical[u["obligation_id"]].get("intent_statement") for u in ir["units"]]
+          and "intent_statement" not in ir["units"][2],
+          "each unit carries kind, statement, required evidence kind and intent (absent when none): "
+          "a report entry can be built from the IR alone")
     digests = oset.obligation_digests(osets.demo())
     check(all(u["obligation_digest"] == digests[u["obligation_id"]] for u in ir["units"]),
           "each unit carries the obligation digest the set gives it")
@@ -272,6 +280,15 @@ def check_lowering():
     check(all(u["obligation_digest"] == oset.obligation_digests(document)[u["obligation_id"]]
               for u in ir["unsupported"]), "unsupported entries carry the digest too")
     check(adapter.lower(document, BACKEND) == ir, "lowering with unsupported obligations is deterministic")
+    check(all(u[f] == {o["obligation_id"]: o for o in oset.canonical_form(document)["obligations"]}[u["obligation_id"]][f]
+              for u in ir["unsupported"] for f in ("kind", "statement", "required_evidence_kind", "affected_components")),
+          "unsupported entries carry the same metadata, so they too can become 'not-run' report entries")
+    big = copy.deepcopy(osets.demo())
+    big["obligations"][0]["statement"] = "ensures x > " + "0" * 10 + "9" * 5000
+    huge = adapter.lower(big, BACKEND)
+    check(huge["units"][0]["clause"]["expression"] == "x > " + "9" * 5000 and not huge["unsupported"],
+          "a 5000-digit literal is normalised textually (no int() length limit); leading zeros dropped")
+    check(adapter.canonical_expression("x == 0000") == "x == 0", "000 normalises to 0")
 
 
 def check_cli():

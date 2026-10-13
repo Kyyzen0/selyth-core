@@ -41,10 +41,14 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["obligation_id", "obligation_digest", "clause", "context"],
+        "required": ["obligation_id", "obligation_digest", "kind", "statement", "required_evidence_kind", "clause", "context"],
         "properties": {
           "obligation_id": { "type": "string", "minLength": 1 },
           "obligation_digest": { "$ref": "#/$defs/digest" },
+          "kind": { "$ref": "#/$defs/kind" },
+          "statement": { "description": "The authored statement (NFC), carried so the report can be built from L2 alone.", "type": "string", "minLength": 1 },
+          "required_evidence_kind": { "$ref": "#/$defs/evidence_kind" },
+          "intent_statement": { "description": "Authored intent; absent when none was authored (a report records that as null).", "type": "string", "minLength": 1 },
           "clause": {
             "type": "object",
             "additionalProperties": false,
@@ -73,17 +77,23 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["obligation_id", "obligation_digest", "kind", "reason"],
+        "required": ["obligation_id", "obligation_digest", "kind", "statement", "required_evidence_kind", "affected_components", "reason"],
         "properties": {
           "obligation_id": { "type": "string", "minLength": 1 },
           "obligation_digest": { "$ref": "#/$defs/digest" },
-          "kind": { "type": "string", "minLength": 1 },
+          "kind": { "$ref": "#/$defs/kind" },
+          "statement": { "type": "string", "minLength": 1 },
+          "required_evidence_kind": { "$ref": "#/$defs/evidence_kind" },
+          "intent_statement": { "type": "string", "minLength": 1 },
+          "affected_components": { "type": "array", "items": { "type": "string" } },
           "reason": { "type": "string", "minLength": 1 }
         }
       }
     }
   },
   "$defs": {
+    "kind": { "type": "string", "enum": ["precondition", "postcondition", "invariant", "termination", "permission", "acceptance-criterion", "resource-bound"] },
+    "evidence_kind": { "type": "string", "enum": ["kernel-proven", "machine-checked-model", "property-tested", "runtime-asserted", "llm-corroborated", "human-asserted"] },
     "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "tool": {
       "type": "object",

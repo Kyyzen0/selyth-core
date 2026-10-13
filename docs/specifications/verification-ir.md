@@ -37,6 +37,8 @@ The statement must start with its clause keyword followed by an expression in th
 
 An obligation that is not lowerable (kind, missing keyword, expression outside the subset) goes to `unsupported` with a reason. **Nothing is dropped:** every obligation of the set is in `units` or in `unsupported`, exactly once, with the digest the set gives it. A backend reports an unsupported obligation as `not-run`, which the policy engine turns into its `on_unknown_evidence` action.
 
+Every unit and every unsupported entry also carries `kind`, `statement`, `required_evidence_kind` and `intent_statement` (absent when none), because a report entry needs them and layer rule 4 forbids L3 from carrying what L2 did not produce: the verification engine never rereads the Obligation Set. Unsupported entries also carry `affected_components`. Integer literals are normalised textually (leading zeros dropped), never through a bounded integer type.
+
 Assumptions travel in `context` for the report. They are never lowered to `assume`.
 
 ## Not covered here
