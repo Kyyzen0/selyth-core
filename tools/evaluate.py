@@ -117,13 +117,22 @@ def locate_node():
     return found
 
 
-def oracle(ts_text, node):
-    """Which contract obligations does this code violate, by sampling its real behaviour?"""
+ORACLE_TIMEOUT = 60                     # seconds; a correct candidate answers in about two
+
+
+def oracle(ts_text, node, timeout=ORACLE_TIMEOUT):
+    """Which contract obligations does this code violate, by sampling its real behaviour?
+
+    A candidate that does not terminate (a synchronous loop no `try` can interrupt) is a violation
+    of the obligations, recorded as such: one such submission must not abort the whole corpus."""
     with tempfile.TemporaryDirectory(prefix="selyth-oracle-") as tmp:
         path = Path(tmp) / "ledger.ts"
         path.write_text(ts_text, encoding="utf-8")
-        run = subprocess.run([node, "eval/oracle.ts", str(path)], cwd=ROOT / "ts", capture_output=True,
-                             text=True, timeout=300)
+        try:
+            run = subprocess.run([node, "eval/oracle.ts", str(path)], cwd=ROOT / "ts", capture_output=True,
+                                 text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return {"violated": ["NONTERMINATION"], "necessity_lost": [], "timed_out": True}
     if run.returncode != 0:
         raise EvaluationError(f"the oracle failed: {run.stderr.strip()[:300]}")
     return json.loads(run.stdout)
@@ -157,7 +166,7 @@ def run_submission(task, base, tools):
     record["oracle"] = {"violated": truth["violated"], "violates": bool(truth["violated"])}
     record["label_confirmed"] = record["oracle"]["violates"] == task["violates"]
 
-    started, cpu = time.monotonic(), cpu_seconds()
+    started = time.monotonic()
     try:
         workspace = t2d.translate(env["ts"], env["translation"])
     except (t2d.TranslationError, KeyError, TypeError) as exc:
@@ -190,14 +199,13 @@ def run_submission(task, base, tools):
                        "failed": sorted(o["obligation_id"] for o in report["obligations"] if o["outcome"] == "failed")
                        if arm == "A1" else None,
                        "resource_units": units, "seconds": seconds}
-    record["cpu_seconds"] = round(cpu_seconds() - cpu, 2)
     record["wall_seconds"] = round(time.monotonic() - started, 2)
     return record
 
 
 # ---- scoring --------------------------------------------------------------------------
 
-def summarize(records):
+def summarize(records, cpu_seconds_total=0.0):
     """The metrics the harness can measure, per arm, against the oracle's ground truth."""
     usable = [r for r in records if r["label_confirmed"]]
     out = {"tasks": len(records), "unreliable_labels": sorted(r["id"] for r in records if not r["label_confirmed"]),
@@ -222,7 +230,7 @@ def summarize(records):
         "resource_units_per_submission": round(sum(r["B"]["resource_units"] for r in gated) / max(len(gated), 1)),
         "seconds_a0_per_submission": round(sum(r["A0"].get("seconds", 0) for r in records) / max(len(records), 1), 2),
         "seconds_a1_b_per_submission": round(sum(r["B"].get("seconds", 0) for r in gated) / max(len(gated), 1), 1),
-        "cpu_seconds_total": round(sum(r.get("cpu_seconds", 0) for r in records), 1),
+        "cpu_seconds_total": round(cpu_seconds_total, 1),     # measured once around the whole run, not summed per worker
     }
     null = next((r for r in records if r["group"] == "control"), None)
     out["null_agent"] = None if null is None else {
@@ -268,12 +276,14 @@ def run(tasks_path, jobs):
     dafny = backend.resolve_dafny(os.environ.get("SELYTH_DAFNY") or str(Path.home() / ".local" / "opt" / "dafny" / "dafny"))
     version, solver = backend.tool_versions(dafny)
     tools = (dafny, solver, version, locate_node())
+    cpu_before = cpu_seconds()                       # process-wide: one reading around everything, never per worker
     if jobs > 1:
         with ThreadPoolExecutor(max_workers=jobs) as pool:
             records = list(pool.map(lambda t: run_submission(t, base, tools), corpus["tasks"]))
     else:
         records = [run_submission(t, base, tools) for t in corpus["tasks"]]
-    return {"corpus_id": corpus["corpus_id"], "dafny": version, "records": records, "summary": summarize(records)}
+    return {"corpus_id": corpus["corpus_id"], "dafny": version, "records": records,
+            "summary": summarize(records, cpu_seconds() - cpu_before)}
 
 
 def main(argv=None):

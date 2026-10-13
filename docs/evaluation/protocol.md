@@ -43,7 +43,7 @@ What the metric does **not** reward: a submission that is wrong but within the o
 | False acceptance | yes | accepted and the oracle says it breaks an obligation |
 | False rejection | yes | rejected and the oracle says it breaks none; refusals of code outside the translated subset are counted separately |
 | Verification latency | yes | resource units of the A1/B run, wall-clock beside it |
-| CPU | yes | CPU time of child processes (cumulative; run with `--jobs 1` for a clean per-submission figure) |
+| CPU | yes | CPU time of child processes, read once around the whole run (not per submission) |
 | Unauthorized spec change detection | yes | rate at which the tampering submissions are rejected |
 | Peak memory | **no** | to add on the declared hardware |
 | Human intervention (review-minutes per accepted change) | **no** | needs people; see decisions |
