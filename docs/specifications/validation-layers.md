@@ -20,7 +20,7 @@ JSON Schema **cannot** state:
 
 ## Layer 2 — semantic validation (policy engine)
 
-**Owner:** the deterministic policy engine (coverage of an Obligation Set by a report is already checked by `tools/obligation_set.py`, see [`obligation-set-canonicalization.md`](obligation-set-canonicalization.md)), `(policy, report, obligation_set) -> decision` (`docs/roadmap/next-tasks-for-claude.md`, tasks 2 and 3). **Not implemented yet.** A document that passes layer 1 is well-formed, not consistent.
+**Owner:** the deterministic policy engine (coverage of an Obligation Set by a report is already checked by `tools/obligation_set.py`, see [`obligation-set-canonicalization.md`](obligation-set-canonicalization.md)), `(policy, report, obligation_set) -> decision` (`docs/roadmap/next-tasks-for-claude.md`, tasks 2 and 3). Implemented by `tools/policy_engine.py` ([specification](policy-engine.md)). A document that passes layer 1 is well-formed, not consistent.
 
 ## Where each invariant lives
 
@@ -33,14 +33,14 @@ JSON Schema **cannot** state:
 | A local subprocess is not outside the agent boundary | structural | `producer.allOf[0]` | `report/local-subprocess-claiming-isolation` |
 | `trust` cannot claim a verifier outside the boundary that the producer denies | structural | root `allOf[1]` | `report/outside-boundary-claim-with-local-producer` |
 | `remote-attested` requires a remote-service producer outside the boundary | structural | root `allOf[2]` | `report/remote-trust-with-local-producer`, `report/remote-trust-with-inside-boundary-producer` |
-| `policy.policy_digest` equals `decision.policy_digest` | **semantic** | nothing yet | `report/policy-digest-mismatch` (open gap) |
-| Every obligation has an applicable rule, otherwise a safe default decides | **semantic** | nothing yet | `policy/no-rule-applies-to-obligation` (open gap) |
-| The policy digest is the digest of the canonical policy content | **semantic** | nothing yet, needs canonicalisation (task 2) | none |
-| `rules_evaluated` is the number of rules the engine really evaluated | **semantic** | nothing yet | none |
-| `decision.result` is what the policy yields for the obligations' outcomes and evidence | **semantic** | nothing yet | none |
+| `policy.policy_digest` equals `decision.policy_digest` | **semantic** | policy engine, `INTEGRITY-POLICY-DIGEST-MISMATCH` | `report/policy-digest-mismatch`, `tools/test-policy-engine.py` |
+| Every obligation has an applicable rule, otherwise a safe default decides | **semantic** | policy engine, `DEFAULT-NO-RULE-DECIDES` (rejected) | `policy/no-rule-applies-to-obligation`, `tools/test-policy-engine.py` |
+| The policy digest is the digest of the canonical policy content | **semantic** | policy engine, `INTEGRITY-POLICY-NOT-PINNED` | `tools/test-policy-engine.py` |
+| `rules_evaluated` is the number of rules the engine really evaluated | **semantic** | `policy_engine.replay` (the recorded decision must equal the engine's) | `tools/test-policy-engine.py`, "Replay" |
+| `decision.result` is what the policy yields for the obligations' outcomes and evidence | **semantic** | `policy_engine.replay` | same |
 | The report lists every obligation of the Obligation Set exactly once, with the same id and digest, and names the set digest | **semantic** | `tools/obligation_set.py cover` (`check_coverage`) | `tools/test-obligation-set.py`, "Coverage" |
 | `obligation_id` values are unique within a report, and within an Obligation Set | **semantic** | `check_coverage` (report), `parse_obligation_set` (set) | same |
-| `min_evidence_kind` compares positions on the evidence lattice, not on JSON enum order | **semantic** | nothing yet (task 3) | none |
+| `min_evidence_kind` compares positions on the evidence lattice, not on JSON enum order | **semantic** | `policy_engine.EVIDENCE_LATTICE` | `tools/test-policy-engine.py`, "Evidence lattice" |
 
 The last row matters because `enum` order carries no meaning in JSON Schema, so the "normative order" stated in a schema description is not something layer 1 can check.
 
@@ -49,6 +49,5 @@ Two things are constrained by neither layer today: `produced_at` is described as
 ## How the test suite reflects the split
 
 - A structural scenario must be **rejected** by `tools/validate.py`, and the rejection must include the intended rule, not merely any error.
-- A semantic scenario is **valid** for JSON Schema by construction. The runner prints it as `[gap ]` and does not count it as a failure: a gap is a known, named hole, not a regression. If JSON Schema starts rejecting one, the run fails and says to reclassify it as structural.
-- When the policy engine exists, each `[gap ]` scenario must become a test that the engine rejects or escalates it, and the `[gap ]` line must disappear. A gap that survives the engine is a bug.
+- A semantic scenario is **valid** for JSON Schema by construction. `tools/test-validation.py` asserts that, and that the policy engine names the rule that rejects it; `tools/test-policy-engine.py` runs the real rejection. If JSON Schema starts rejecting one, the run fails and says to reclassify it as structural.
 - A new conditional rule added to a schema without a fixture that exercises it fails the "rule coverage" check.

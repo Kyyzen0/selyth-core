@@ -72,6 +72,7 @@ docs/
   specifications/
     report-schema.json                Verification report schema
     policy-schema.json                Acceptance policy schema
+    policy-engine.md                  Normative semantics of (policy, report, obligation set) -> decision
     obligation-set-schema.json        Obligation Set schema (the frozen verification input)
     obligation-set-canonicalization.md  Canonical form, digest, and report coverage rules
     examples/queue.obligations.json   Demonstration Obligation Set
@@ -88,6 +89,8 @@ Makefile                              `make test`: builds the pinned venv, runs 
 requirements.in / requirements.txt    Direct dependencies / hash-locked environment
 tools/
   validate.py                         Independent Draft 2020-12 validator (jsonschema)
+  policy_engine.py                    Deterministic policy engine: decide, replay, policy digest
+  test-policy-engine.py               Engine tests: scenarios, exhaustive safety, determinism, replay
   obligation_set.py                   Validate, canonicalise, hash an Obligation Set; check report coverage
   test-obligation-set.py              Obligation Set tests: digest invariance and sensitivity, coverage
   test-validation.py                  Primary schema suite: legacy fixtures + hardening
@@ -107,7 +110,8 @@ This builds a virtualenv (`.venv`, Python 3.9 or newer) from the hash-locked `re
 2. **`tools/test-schemas.py`, the original suite**, under `tools/minischema.py`, kept as a secondary check.
 3. **`tools/test-obligation-set.py`**, the Obligation Set suite: the schema rejects malformed sets; the digest is unchanged by formatting, key order, array order, `\u` escapes and Unicode normalisation, and changes under every change of meaning; a report that omits, duplicates, invents or mis-digests an obligation is refused.
 
-Some rules cannot be expressed in JSON Schema at all, such as a policy digest that must equal the digest recorded in the decision. The suite lists those as `[gap ]` lines: documents that are structurally valid but must be refused by the policy engine, which does not exist yet. They are known holes, not failures, and the split is documented in [`docs/specifications/validation-layers.md`](docs/specifications/validation-layers.md).
+Some rules cannot be expressed in JSON Schema at all, such as a policy digest that must equal the digest recorded in the decision. Those are enforced by the policy engine; the split is documented in [`docs/specifications/validation-layers.md`](docs/specifications/validation-layers.md).
+4. **`tools/test-policy-engine.py`**, the policy engine suite: every integrity failure, block, default and escalation yields the decision the specification gives; over every combination of outcome, evidence kind and rule, `accepted` is never produced for evidence weaker than required; decisions are byte-identical across runs, hash seeds and input orderings, and `decide` touches no file, socket, process, clock or randomness.
 
 Without `make`:
 
@@ -116,6 +120,8 @@ python3 -m venv .venv
 .venv/bin/pip install --require-hashes -r requirements.txt
 .venv/bin/python tools/test-validation.py
 ```
+
+To decide: `.venv/bin/python tools/policy_engine.py decide <policy.json> <report.json> <obligation-set.json>` (exit 0 accepted, 1 rejected, 3 needs-human, 2 invalid input), or `replay` to check that a report's recorded decision is the engine's. The semantics are in [`docs/specifications/policy-engine.md`](docs/specifications/policy-engine.md).
 
 To hash an Obligation Set: `.venv/bin/python tools/obligation_set.py digest docs/specifications/examples/queue.obligations.json`; to check that a report covers it: `... obligation_set.py cover <obligation-set.json> <report.json>`. The rules are in [`docs/specifications/obligation-set-canonicalization.md`](docs/specifications/obligation-set-canonicalization.md).
 
