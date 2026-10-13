@@ -31,6 +31,8 @@ Each obligation is lowered to one clause of the backend, chosen by its `kind`:
 | `termination` | `decreases` |
 | `permission`, `acceptance-criterion`, `resource-bound` | not lowerable by this adapter |
 
+A character the grammar does not accept is reported by code point (`U+FEFF`), never through a language's `repr`, whose output depends on its Unicode database.
+
 The statement must start with its clause keyword followed by an expression in the supported subset (`ensures result.length > 0`). The expression is parsed and printed back in a canonical form (single spaces around binary operators, parentheses only where precedence needs them), so spelling does not change the IR.
 
 **Supported expression subset** (pure, no calls, no indexing, no assignment): identifiers; member access `a.b.c`; non-negative integer literals; `true`, `false`; unary `!` and `-`; binary `* / %`, `+ -`, comparisons `< <= > >= == !=` (chains of `<` and `<=`, as in `0 <= size <= capacity`), `&&`, `||`, `==>` (right associative); parentheses.

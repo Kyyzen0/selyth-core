@@ -55,8 +55,8 @@ DEMO = osets.DEMO
 BACKEND = "4.11.0"
 # Pinned: if the adapter's output for the demonstration set changes, ADAPTER_VERSION must
 # change with it, and this value be updated in the same commit.
-GOLDEN = {"adapter_version": "0.2.0",
-          "sha256": "sha256:43927706b65744926224a5dfc7ecc128ff008ba3df6dba3a058d95da8eb11e19"}
+GOLDEN = {"adapter_version": "0.2.1",
+          "sha256": "sha256:4f20d0d13af2656c2f3c6b15c83f0c9260d0385799ecc4b53fd2c1f1952499eb"}
 
 
 def lowered(document=None, backend=BACKEND):

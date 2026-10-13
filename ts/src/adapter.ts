@@ -5,7 +5,7 @@ import type { Json } from "./json.ts";
 
 export const ADAPTER_NAME = "selyth-ts-adapter";
 // Changing what `lower` emits for any input requires changing this value.
-export const ADAPTER_VERSION = "0.2.0";
+export const ADAPTER_VERSION = "0.2.1";
 export const IR_VERSION = "0.2.0";
 export const BACKEND_NAME = "dafny";
 
@@ -13,17 +13,29 @@ const CLAUSES: Record<string, string> = { precondition: "requires", postconditio
 
 export class ExpressionError extends Error {}
 
-const TOKEN = /\s*(==>|<=|>=|==|!=|&&|\|\||[-+*/%<>!().]|[A-Za-z_][A-Za-z0-9_]*|[0-9]+)/y;
+// Python's str.isspace() set, which `str.split()`, `str.strip()` and `re`'s `\s` use. ECMAScript's `\s`
+// differs (it has U+FEFF; it lacks U+001C-001F and U+0085), so it must not be used here.
+const WS = "\\t\\n\\v\\f\\r\\x1c-\\x1f \\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000";
+export const PYTHON_WHITESPACE = new RegExp(`^[${WS}]$`, "u");
+const LEADING = new RegExp(`^[${WS}]+`, "u");
+const TRAILING = new RegExp(`[${WS}]+$`, "u");
+const TOKEN = new RegExp(`[${WS}]*(==>|<=|>=|==|!=|&&|\\|\\||[-+*/%<>!().]|[A-Za-z_][A-Za-z0-9_]*|[0-9]+)`, "uy");
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
+/** First Unicode code point (Python's s[:1]); slice(0, 1) would cut an astral character in half. */
+const firstCodePoint = (text: string): string => {
+  const cp = text.codePointAt(0);
+  return cp === undefined ? "" : String.fromCodePoint(cp);
+};
+
 function tokenize(source: string): string[] {
-  const text = source.trimEnd();
+  const text = source.replace(TRAILING, "");
   const tokens: string[] = [];
   let pos = 0;
   while (pos < text.length) {
     TOKEN.lastIndex = pos;
     const m = TOKEN.exec(text);
-    if (!m) throw new ExpressionError(`unsupported character '${text.slice(pos).trimStart().slice(0, 1)}'`);
+    if (!m) throw new ExpressionError(`unsupported character U+${firstCodePoint(text.slice(pos).replace(LEADING, "")).codePointAt(0)?.toString(16).toUpperCase().padStart(4, "0")}`);
     tokens.push(m[1] as string);
     pos = TOKEN.lastIndex;
   }
@@ -142,7 +154,7 @@ function lowerObligation(kind: string, statement: string): Lowered {
   const keyword = CLAUSES[kind];
   if (keyword === undefined) return { unsupported: `kind '${kind}' cannot be lowered to a ${BACKEND_NAME} clause` };
   // Python's str.split(None, 1): split on the first run of whitespace.
-  const m = /^\s*(\S+)(?:\s+([\s\S]*))?$/.exec(statement);
+  const m = new RegExp(`^[${WS}]*([^${WS}]+)(?:[${WS}]+([\\s\\S]*))?$`, "u").exec(statement);
   if (!m || m[1] !== keyword) return { unsupported: `a ${kind} statement must start with '${keyword}'` };
   if (m[2] === undefined || m[2] === "") return { unsupported: `no expression after '${keyword}'` };
   try {
