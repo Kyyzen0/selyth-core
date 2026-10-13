@@ -72,6 +72,9 @@ docs/
   specifications/
     report-schema.json                Verification report schema
     policy-schema.json                Acceptance policy schema
+    obligation-set-schema.json        Obligation Set schema (the frozen verification input)
+    obligation-set-canonicalization.md  Canonical form, digest, and report coverage rules
+    examples/queue.obligations.json   Demonstration Obligation Set
     validation-layers.md              What JSON Schema enforces vs. what the policy engine must
   roadmap/
     core-v0.1.md                      Minimal prototype scope and milestones
@@ -85,6 +88,8 @@ Makefile                              `make test`: builds the pinned venv, runs 
 requirements.in / requirements.txt    Direct dependencies / hash-locked environment
 tools/
   validate.py                         Independent Draft 2020-12 validator (jsonschema)
+  obligation_set.py                   Validate, canonicalise, hash an Obligation Set; check report coverage
+  test-obligation-set.py              Obligation Set tests: digest invariance and sensitivity, coverage
   test-validation.py                  Primary schema suite: legacy fixtures + hardening
   minischema.py                       Scoped JSON Schema validator (legacy)
   test-schemas.py                     Schema fixtures: 23 cases, 21 must fail
@@ -100,6 +105,7 @@ This builds a virtualenv (`.venv`, Python 3.9 or newer) from the hash-locked `re
 
 1. **`tools/test-validation.py`, the primary suite**, under the independent [`jsonschema`](https://python-jsonschema.readthedocs.io/) library, pinned, in its Draft 2020-12 mode. It replays the 23 fixtures of `tools/test-schemas.py` unchanged: two valid documents that must pass and twenty-one that must fail. For every rejection it also requires that the *intended* rule is among the reported errors, because a fixture that fails for an unrelated reason proves nothing. It further checks that each schema is a valid Draft 2020-12 schema with no duplicate key, no unknown keyword and no dangling `$ref`, so a schema cannot quietly rely on a rule that is never checked.
 2. **`tools/test-schemas.py`, the original suite**, under `tools/minischema.py`, kept as a secondary check.
+3. **`tools/test-obligation-set.py`**, the Obligation Set suite: the schema rejects malformed sets; the digest is unchanged by formatting, key order, array order, `\u` escapes and Unicode normalisation, and changes under every change of meaning; a report that omits, duplicates, invents or mis-digests an obligation is refused.
 
 Some rules cannot be expressed in JSON Schema at all, such as a policy digest that must equal the digest recorded in the decision. The suite lists those as `[gap ]` lines: documents that are structurally valid but must be refused by the policy engine, which does not exist yet. They are known holes, not failures, and the split is documented in [`docs/specifications/validation-layers.md`](docs/specifications/validation-layers.md).
 
@@ -110,6 +116,8 @@ python3 -m venv .venv
 .venv/bin/pip install --require-hashes -r requirements.txt
 .venv/bin/python tools/test-validation.py
 ```
+
+To hash an Obligation Set: `.venv/bin/python tools/obligation_set.py digest docs/specifications/examples/queue.obligations.json`; to check that a report covers it: `... obligation_set.py cover <obligation-set.json> <report.json>`. The rules are in [`docs/specifications/obligation-set-canonicalization.md`](docs/specifications/obligation-set-canonicalization.md).
 
 To validate one document against one schema: `.venv/bin/python tools/validate.py docs/specifications/report-schema.json my-report.json`. To change a dependency, edit `requirements.in` and regenerate the lock with the command written at the top of that file.
 

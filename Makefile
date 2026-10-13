@@ -13,6 +13,9 @@ VPY    := $(VENV)/bin/python
 test: venv
 	$(VPY) tools/test-validation.py
 	@echo
+	@echo "== Obligation Set: schema, canonical digest, report coverage"
+	$(VPY) tools/test-obligation-set.py
+	@echo
 	@echo "== Legacy suite (tools/test-schemas.py, tools/minischema.py), kept as a secondary check"
 	$(VPY) tools/test-schemas.py
 
