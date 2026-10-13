@@ -29,6 +29,11 @@ import validate
 
 ROOT = Path(__file__).resolve().parent.parent
 SPECS = ROOT / "docs" / "specifications"
+# Schemas are read once, when the module is imported: `decide` itself does no I/O.
+_SCHEMAS = {"policy": validate.load_schema(SPECS / "policy-schema.json"),
+            "report": validate.load_schema(SPECS / "report-schema.json"),
+            "obligation set": validate.load_schema(oset.SET_SCHEMA),
+            "lock": validate.load_schema(SPECS / "lock-schema.json")}
 
 # Evidence strength, weakest to strongest. Defined here, not read from the position of
 # values in a JSON `enum`: the report schema lists kinds strongest-first and the policy
@@ -183,6 +188,32 @@ def make_lock(policy, obligation_set, approved_by):
             "policy_digest": policy_digest(policy), "approved_by": approved_by}
 
 
+def _input_problems(policy, report, obligation_set, lock):
+    """Why the documents are not valid inputs: the engine accepts nothing it cannot read."""
+    problems = []
+    named = [("policy", policy), ("report", report), ("obligation set", obligation_set)]
+    if lock is not None:
+        named.append(("lock", lock))
+    try:
+        for name, document in named:
+            for p in validate.validate(document, _SCHEMAS[name]):
+                problems.append(("INTEGRITY-INPUT-INVALID", f"{name}: {p.path}: {p.message} ({p.keyword})"))
+        if not problems:
+            oset.canonical_form(obligation_set)  # duplicates the schema cannot state
+    except oset.ObligationSetError as exc:
+        problems.append(("INTEGRITY-INPUT-INVALID", f"obligation set: {exc}"))
+    except RecursionError:
+        problems.append(("INTEGRITY-INPUT-INVALID", "a document is nested too deeply to be read"))
+    return problems
+
+
+def _digest_or_zero(policy):
+    try:
+        return policy_digest(policy)
+    except (ValueError, TypeError, RecursionError, OverflowError):
+        return "sha256:" + "0" * 64
+
+
 def _lock_problems(policy, obligation_set, lock):
     problems = []
     if lock["policy_digest"] != policy_digest(policy):
@@ -198,7 +229,7 @@ def _lock_problems(policy, obligation_set, lock):
 
 def _integrity(policy, report, obligation_set, lock=None):
     """Reasons the three documents cannot be decided together."""
-    problems = _lock_problems(policy, obligation_set, lock) if lock else []
+    problems = _lock_problems(policy, obligation_set, lock) if lock is not None else []
     problems += [("INTEGRITY-POLICY-INVALID", p) for p in policy_problems(policy)]
     claimed, decided = report["policy"], report["decision"]["policy_digest"]
     if claimed["policy_digest"] != decided:
@@ -223,13 +254,22 @@ def _integrity(policy, report, obligation_set, lock=None):
     return problems
 
 
-def decide(policy, report, obligation_set, lock=None):
+def decide(policy, report, obligation_set, lock=None, *, validate_inputs=True):
     """Return the decision (shaped like `decision` in report-schema.json).
 
-    Preconditions: the three documents (and the lock, if given) are valid against their
-    schemas. The report's own `decision` is a claim and is ignored except for the digest it
-    names. With a lock, the policy and the Obligation Set must be the ones it approved.
+    Total: any JSON values give a decision. A document that is not valid against its schema
+    is rejected (INTEGRITY-INPUT-INVALID), never judged, so the engine does not depend on
+    its caller having checked. The report's own `decision` is a claim and is ignored except
+    for the digest it names. With a lock, the policy and the Obligation Set must be the ones
+    it approved. `validate_inputs=False` skips the schema check and is for tests that probe
+    the semantics with deliberately malformed evidence; it is not a mode for a gate.
     """
+    if validate_inputs:
+        invalid = _input_problems(policy, report, obligation_set, lock)
+        if invalid:
+            return {"result": "rejected", "policy_digest": _digest_or_zero(policy), "rules_evaluated": 0,
+                    "violations": [_violation(rule_id, message) for rule_id, message in invalid],
+                    "escalations": []}
     # Digests are taken over NFC text, so two spellings of one string are one string:
     # decide on the normalised documents or a pinned digest would not pin the decision.
     policy, report, obligation_set = (_canonical_value(d) for d in (policy, report, obligation_set))
@@ -265,7 +305,8 @@ def decide(policy, report, obligation_set, lock=None):
 
 def replay(policy, report, obligation_set, lock=None):
     """Does the decision recorded in the report equal what the engine decides?"""
-    return decide(policy, report, obligation_set, lock) == report["decision"]
+    recorded = report.get("decision") if isinstance(report, dict) else None
+    return decide(policy, report, obligation_set, lock) == recorded
 
 
 def canonical_decision(decision):

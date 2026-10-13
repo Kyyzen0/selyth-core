@@ -16,12 +16,17 @@ The result has the shape of `decision` in `report-schema.json`. Per obligation, 
 
 Violations and escalations are ordered by `obligation_id`; each names the rule that produced it (`rule_id`, or a built-in id below) and, when relevant, the obligation.
 
+## Step 0 — the inputs must be valid
+
+`decide` is total: any JSON values give a decision. Before anything else it checks the policy, the report, the Obligation Set and the lock (if given) against their schemas, and the Obligation Set against the canonical form's duplicate rules. A document that fails is **rejected** with `INTEGRITY-INPUT-INVALID`, one violation per problem, naming the document, the path and the keyword, and nothing is judged. The engine therefore does not depend on its caller having checked, and the 21 fixtures that the schemas must reject (`tools/test-schemas.py`) are rejected by the engine too (replayed in `tools/test-policy-engine.py`). The schemas are read when the module is imported, so `decide` itself still does no I/O. `validate_inputs=False` exists for tests that probe the semantics with deliberately malformed evidence and is not a mode for a gate.
+
 ## Step 1 — integrity (whole report)
 
 If any check fails the result is `rejected` with one violation per problem, no obligation is judged, and `rules_evaluated` is 0. Checks:
 
 | `rule_id` | Fails when |
 |---|---|
+| `INTEGRITY-INPUT-INVALID` | step 0: a document is not valid for its schema |
 | `INTEGRITY-POLICY-INVALID` | two rules of the policy share a `rule_id` |
 | `INTEGRITY-POLICY-DIGEST-MISMATCH` | `report.policy.policy_digest` ≠ `report.decision.policy_digest` |
 | `INTEGRITY-POLICY-NOT-PINNED` | `report.policy.policy_digest` ≠ the digest of the supplied policy |

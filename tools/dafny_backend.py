@@ -273,8 +273,12 @@ def build_report(ir, obligation_set, policy, workspace_bytes, workspace_name, pr
                    "policy_digest": policy_digest, "approved_by": policy["approved_by"],
                    "approval": policy["approval"]},
         "obligations": results,
+        # Replaced below by the engine's decision. The engine validates its inputs, so even this
+        # placeholder must be a valid decision: a rejection names a violation.
         "decision": {"result": "rejected", "policy_digest": policy_digest, "rules_evaluated": 0,
-                     "violations": [], "escalations": []},
+                     "violations": [{"rule_id": "PENDING", "obligation_id": None,
+                                     "message": "the policy engine has not decided yet"}],
+                     "escalations": []},
         "trust": {"model": "local-structural", "verifier_outside_agent_boundary": False,
                   "policy_approval_trusted": trusted,
                   "limitations": [

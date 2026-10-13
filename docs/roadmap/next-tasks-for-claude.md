@@ -50,3 +50,24 @@ Ces tâches sont ordonnées. Chacune doit être livrée avec des tests automatis
 ## Suite prévue
 
 Une fois ces trois tâches terminées, commencer l'adaptateur TypeScript avec une clé de reproductibilité incluant le digest de l'Obligation Set, l'identité et la version de l'adaptateur, puis l'identité de l'outil de vérification.
+
+## État au 13 octobre 2026
+
+Les trois tâches ci-dessus et la « Suite prévue » sont faites et mergées :
+
+| Travail | Pull request |
+|---|---|
+| Tâche 1 — validation indépendante et cas adverses | #1 |
+| Tâche 2 — Obligation Set, canonisation, digest, couverture | #2 |
+| Tâche 3 — moteur de politique déterministe | #3 |
+| Adaptateur TypeScript et IR de vérification (Python, puis portage TypeScript) | #4, #5, #6 |
+| Backend Dafny et rapport de preuve | #7 |
+| Scénarios négatifs (M5) et verrou (lock) | #8 |
+| Preuve empirique réussie (`passed`) dans le schéma et le moteur | #9 |
+
+Reste à faire, par ordre de décision à prendre :
+
+1. Un scénario réel d'une vingtaine d'obligations `kernel-proven` sur un petit projet (élément 6 de `core-v0.1.md`).
+2. La traduction d'un sous-ensemble pur de TypeScript vers Dafny, qui remplacerait l'atelier de preuve écrit à la main.
+3. L'évaluation M6 (A contre B), qui demande de choisir l'agent, les tâches et le budget.
+4. Points de conception ouverts : `requires_intent_corroboration` ne peut pas être satisfait en même temps qu'une preuve (une seule preuve par obligation dans le rapport) ; `non_empty_assumptions` est lu littéralement ; `cost_budget` n'est pas appliqué ; le contenu des champs que le rapport recopie de l'Obligation Set n'est pas comparé.
