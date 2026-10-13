@@ -1,0 +1,40 @@
+# Build and research artefacts — not part of the source tree
+scratch/
+*.manifest.json
+
+# Generated deliverables. The Phase C report PDF is regenerated from
+# scratch/mavis-deep-research/*/final_turn_001.md, not committed.
+*.pdf
+
+# Tooling caches, never source
+.plugin-cache/
+.skills/
+
+# User-supplied input
+attachments/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Verification output. Reports are evidence about a specific artefact at a
+# specific hash; committing them would bind a historical result to whatever
+# the file happens to be later. Content addressing is the whole point.
+.selyth/
+*.report.json
+reports/
+
+# Solver and backend artefacts
+.dfy/
+*.boogie
+*.bpl
+/z3-cache/
+
+# Editor and OS
+.DS_Store
+*.swp
+.idea/
+.vscode/
