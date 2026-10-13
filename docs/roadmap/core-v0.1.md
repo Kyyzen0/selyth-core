@@ -53,7 +53,7 @@ M0 through M5 are the prototype. M6 is the experiment that justifies continuing.
 | M1 Obligation Set and its digest | done | `tools/obligation_set.py`, `obligation-set-canonicalization.md` |
 | M2 TypeScript adapter | done, in Python and in TypeScript, byte-identical | `tools/ts_adapter.py`, `ts/`, `verification-ir.md` |
 | M3 Dafny backend | done, against Dafny 4.11.0 | `tools/dafny_backend.py`, `dafny-backend.md` |
-| M4 Policy engine | done | `tools/policy_engine.py`, `policy-engine.md` |
+| M4 Policy engine | done; the 21 negative fixtures are replayed through the engine, which rejects each as invalid input | `tools/policy_engine.py`, `policy-engine.md`, `tools/test-policy-engine.py` |
 | M5 Negative scenarios | done | `tools/test-scenarios.py`, `negative-scenarios.md` |
 | M6 Evaluation | not started | needs decisions on the agent, the tasks and the budget |
 

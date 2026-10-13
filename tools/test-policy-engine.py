@@ -102,7 +102,10 @@ def entry(report, oid):
 
 
 def decide(policy, report, document, lock=None):
-    return engine.decide(policy, report, document, lock)
+    """The engine's semantics, probed with evidence that is deliberately not schema-valid
+    (unknown outcomes, incoherent soundness). The default, validating path is tested in
+    check_input_validation() and by every other suite, which call engine.decide directly."""
+    return engine.decide(policy, report, document, lock, validate_inputs=False)
 
 
 def rule_ids(decision):
@@ -536,7 +539,7 @@ def check_determinism():
             mock.patch.object(os, "urandom", forbidden), mock.patch.object(os, "listdir", forbidden), \
             mock.patch.object(Path, "read_text", forbidden), mock.patch.object(os, "stat", forbidden):
         try:
-            same = engine.canonical_decision(decide(*inputs)) == first
+            same = engine.canonical_decision(engine.decide(*inputs)) == first  # validating path
             check(same, "decide() uses no file, socket, process, clock or randomness")
         except AssertionError as exc:
             check(False, "decide() uses no file, socket, process, clock or randomness", f"    {exc}")
@@ -704,12 +707,87 @@ def replay_with_lock(policy, document, lock):
             and not engine.replay(weaker, report, document))
 
 
+def check_input_validation():
+    heading("The engine is total: what the schemas reject, the engine rejects (core-v0.1.md, M4)")
+    tv = _load("test_validation", "test-validation.py")
+    document, policy = the_set(), copy.deepcopy(legacy.good_policy)
+    coherent = build_report(policy, document)
+    replayed = 0
+    for name, schema_path, instance, must_pass, _why in legacy.CASES:
+        is_report = schema_path == legacy.REPORT
+        d = engine.decide(policy, instance, document) if is_report else engine.decide(instance, coherent, document)
+        invalid = [v["message"] for v in d["violations"] if v["rule_id"] == "INTEGRITY-INPUT-INVALID"]
+        if must_pass:
+            check(not invalid, f"{name}: the valid fixture is not flagged by the engine", f"    {invalid}")
+            continue
+        path, keyword, *_ = tv.LEGACY_REASONS[name]
+        what = "report" if is_report else "policy"
+        hit = [m for m in invalid if m.startswith(what + ":") and f"{path}:" in m and f"({keyword})" in m]
+        replayed += bool(hit)
+        check(d["result"] == "rejected" and bool(hit) and d["rules_evaluated"] == 0 and not validate.validate(d, DECISION_SCHEMA),
+              f"{name}: rejected by the engine itself, naming {path} ({keyword})", f"    {d}")
+    check(replayed == 21, "all 21 legacy rejections are replayed through the engine and rejected for the intended rule",
+          f"    {replayed} of 21")
+
+    heading("Totality: any JSON gives a decision, never an exception, never an acceptance")
+    garbage = [None, True, 0, 7, 1.5, -1e308, "text", "", [], [None], {}, {"a": {"b": [1, 2, {"c": None}]}},
+               {"rules": "x"}, [[[[[[[[[[1]]]]]]]]]], {"policy_digest": 1}, 10 ** 400]
+    bad = tried = 0
+    for position in range(4):
+        for g in garbage:
+            if position == 3 and g is None:
+                continue  # no lock is a legitimate input
+            tried += 1
+            args = [copy.deepcopy(policy), copy.deepcopy(coherent), copy.deepcopy(document), None]
+            if position == 3:
+                args[3] = g
+            else:
+                args[position] = g
+            try:
+                d = engine.decide(*args)
+            except Exception as exc:  # noqa: BLE001 - the point is that none escapes
+                check(False, f"decide raised on garbage at argument {position}: {g!r}", f"    {exc!r}")
+                bad += 1
+                continue
+            bad += not (d["result"] == "rejected" and not validate.validate(d, DECISION_SCHEMA))
+    check(bad == 0 and tried == 63, f"{tried} garbage inputs, each rejected with a valid decision", f"    {bad} failures")
+    for label, mutate_set in (("two obligations share an obligation_id", lambda d: d["obligations"][1].update(obligation_id="OBL-0007")),
+                              ("assumptions equal only after NFC", lambda d: d["obligations"][0].update(assumptions=["caf\u00e9", "cafe\u0301"]))):
+        broken_set = copy.deepcopy(document)
+        mutate_set(broken_set)
+        try:
+            d = engine.decide(policy, coherent, broken_set)
+            check(d["result"] == "rejected" and rule_ids(d) == ["INTEGRITY-INPUT-INVALID"] and "obligation set" in d["violations"][0]["message"],
+                  f"an Obligation Set the schema accepts but the canonical form refuses ({label}) is rejected, not a crash", f"    {d}")
+        except Exception as exc:  # noqa: BLE001
+            check(False, f"decide raised on an Obligation Set where {label}", f"    {exc!r}")
+    fractional = copy.deepcopy(policy)
+    fractional["cost_budget"]["fast_wall_ms"] = 1.5
+    d = engine.decide(fractional, build_report(policy, document), document)
+    check(d["result"] == "rejected" and rule_ids(d)[0] == "INTEGRITY-INPUT-INVALID" and d["policy_digest"].startswith("sha256:"),
+          "a policy whose digest cannot be computed is rejected, with a well-formed digest field", f"    {d}")
+    empty_lock = engine.decide(policy, coherent, document, {})
+    check(empty_lock["result"] == "rejected" and "lock:" in empty_lock["violations"][0]["message"],
+          "an empty lock is invalid, not 'no lock' (it must not silently disable the check)", f"    {empty_lock}")
+    check(engine.replay(policy, "not a report", document) is False and engine.replay(policy, [], document) is False,
+          "replay of a non-report is False, not an exception")
+
+    heading("For valid documents the validating path decides exactly as the semantic core")
+    other = copy.deepcopy(legacy.good_policy)
+    other["rules"].reverse()
+    for label, pol in (("accept-all policy", accept_all_policy()), ("guarded policy", copy.deepcopy(legacy.good_policy)), ("reversed rules", other)):
+        rep = build_report(pol, document)
+        check(engine.decide(pol, rep, document) == decide(pol, rep, document) and valid_report(rep),
+              f"{label}: same decision with and without the schema check")
+
+
 def main():
     check_scenarios()
     check_lattice_and_digest()
     check_exhaustive_safety()
     check_determinism()
     check_lock()
+    check_input_validation()
     print(f"\n{'FAILED' if FAILURES else 'all checks passed'}: {len(FAILURES)} failure(s)")
     for label, detail in FAILURES:
         print(f"\n--- {label}\n{detail}")
