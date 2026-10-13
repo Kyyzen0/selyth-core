@@ -45,7 +45,7 @@ mutate, good_report, good_policy = legacy.mutate, legacy.good_report, legacy.goo
 LEGACY_REASONS = {
     "report/overclaim-proven-by-llm": ("$.obligations[0].evidence.kind", "enum"),
     "report/llm-claiming-soundness": ("$.obligations[0].evidence.soundness", "const"),
-    "report/kernel-claiming-model-soundness": ("$.obligations[0].evidence.soundness", "const"),
+    "report/kernel-claiming-model-soundness": ("$.obligations[0].evidence.soundness", "enum"),
     "report/timeout-claiming-soundness": ("$.obligations[0].evidence.soundness", "enum"),
     "report/failed-without-diagnostic": ("$.obligations[0].diagnostics", "minItems"),
     "report/accepted-with-violation": ("$.decision.violations", "maxItems"),
@@ -91,6 +91,17 @@ def empirical_check(kind, soundness):
     return mutate(apply, good_report)
 
 
+def no_verdict(outcome, soundness):
+    """A coherent rejected report whose first (kernel) obligation reached no verdict."""
+    def apply(c):
+        c["obligations"][0].update({"outcome": outcome})
+        c["obligations"][0]["evidence"].update({"soundness": soundness})
+        c["obligations"][0]["evidence"]["cost"].update({"timed_out": outcome == "timeout"})
+        c["decision"].update({"result": "rejected", "violations": [
+            {"rule_id": "BLOCK-NO-VERDICT", "obligation_id": "OBL-0007", "message": "no verdict"}]})
+    return mutate(apply, good_report)
+
+
 # Structural cases added on top of the legacy suite:
 # (name, schema, instance, must_pass, why, reason-for-rejection or None)
 ADDED = [
@@ -98,7 +109,18 @@ ADDED = [
      "a model check claiming model soundness is legitimate", None),
     ("report/model-check-claiming-fragment-soundness", REPORT, model_check(), False,
      "fragment soundness is the ceiling of kernel-proven evidence, not of a model check",
-     ("$.obligations[0].evidence.soundness", "const")),
+     ("$.obligations[0].evidence.soundness", "enum")),
+    ("report/timeout-without-soundness", REPORT, no_verdict("timeout", "none"), True,
+     "a kernel check that timed out is reportable, with no soundness claim", None),
+    ("report/not-run-without-soundness", REPORT, no_verdict("not-run", "none"), True,
+     "a kernel check that was not run is reportable, with no soundness claim", None),
+    ("report/proven-without-soundness", REPORT,
+     mutate(lambda c: c["obligations"][0]["evidence"].update(soundness="none"), good_report), False,
+     "a proof supports a soundness claim; 'none' is only for checks without a verdict",
+     ("$.obligations[0].evidence.soundness", "enum")),
+    ("report/machine-model-proven-without-soundness", REPORT, model_check(soundness="none"), False,
+     "a proven model check must claim model soundness",
+     ("$.obligations[0].evidence.soundness", "enum")),
     ("report/property-tested-valid", REPORT, empirical_check("property-tested", "empirical"), True,
      "an empirical check claiming empirical soundness is legitimate", None),
     ("report/property-tested-claiming-fragment-soundness", REPORT,
