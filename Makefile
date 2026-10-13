@@ -46,6 +46,9 @@ test-dafny: venv
 	@echo
 	@echo "== Negative scenarios (M5), end to end with Dafny"
 	$(VPY) tools/test-scenarios.py
+	@echo
+	@echo "== The ledger: twenty obligations on a small module, with a mutation study"
+	$(VPY) tools/test-ledger.py
 
 # The TypeScript port is checked against the Python adapter, so it needs the venv too.
 test-ts: venv

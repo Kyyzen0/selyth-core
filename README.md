@@ -72,6 +72,7 @@ docs/
   specifications/
     report-schema.json                Verification report schema
     policy-schema.json                Acceptance policy schema
+    examples/ledger/                  A 20-obligation money module: TypeScript, Dafny model, obligations, policy, lock
     negative-scenarios.md             The M5 scenarios: incorrect code, weakened obligations and policy, and the lock
     lock-schema.json                  The lock: human-approved digests of the policy and the Obligation Set
     dafny-backend.md                  Dafny backend: workspace markers, outcomes, trust escapes, the report
@@ -95,6 +96,7 @@ requirements.in / requirements.txt    Direct dependencies / hash-locked environm
 tools/
   validate.py                         Independent Draft 2020-12 validator (jsonschema)
 ts/                                   TypeScript port of the adapter (src/), tests against the Python adapter (test/)
+  test-ledger.py                      The ledger: 20 obligations proven, one bug per obligation, vacuity
   test-scenarios.py                   M5 negative scenarios, end to end with Dafny
   dafny_backend.py                    Dafny backend: IR + proof workspace -> report (decided by the engine)
   test-dafny-backend.py               Backend tests against a real Dafny
@@ -127,6 +129,7 @@ Some rules cannot be expressed in JSON Schema at all, such as a policy digest th
 6. **`ts/` (`npm test`)**, the TypeScript port of the adapter: typechecked (`tsc --strict`), and compared **byte for byte** with the Python adapter on the demonstration set and on a rich set (Unicode normalisation, code point ordering, many assumptions, unsupported obligations, a 5,000-digit literal), plus the same vectors and golden as the Python suite.
 7. **`tools/test-dafny-backend.py`**, the Dafny backend suite, against a **real Dafny**: known-correct obligations are `kernel-proven` and the report validates; a false obligation is `failed` and named by the policy engine; an `assume {:axiom}` that Dafny itself would accept cannot launder a false obligation; resource exhaustion is a `timeout`; a missing marker or an unlowerable obligation is `not-run`; an IR for another Dafny version is refused.
 8. **`tools/test-scenarios.py`**, the negative scenarios of milestone M5, end to end with a real Dafny: an off-by-one that passes plain Dafny is `rejected` naming `OBL-0008`; weakening or deleting the obligation it violates, or editing the policy, is `rejected` by digest mismatch against the human-approved lock ([`negative-scenarios.md`](docs/specifications/negative-scenarios.md)).
+9. **`tools/test-ledger.py`** (and `ts/test/ledger.test.ts`), the twenty-obligation money module of [`docs/specifications/examples/ledger/`](docs/specifications/examples/ledger/README.md) against a real Dafny: all twenty `kernel-proven` and accepted under the lock; a bug injected for each obligation, which it must fail on, and which Dafny alone accepts in seventeen cases; a precondition nobody calls is refused as vacuous.
 
 Without `make`:
 

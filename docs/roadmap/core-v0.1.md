@@ -55,9 +55,10 @@ M0 through M5 are the prototype. M6 is the experiment that justifies continuing.
 | M3 Dafny backend | done, against Dafny 4.11.0 | `tools/dafny_backend.py`, `dafny-backend.md` |
 | M4 Policy engine | done; the 21 negative fixtures are replayed through the engine, which rejects each as invalid input | `tools/policy_engine.py`, `policy-engine.md`, `tools/test-policy-engine.py` |
 | M5 Negative scenarios | done | `tools/test-scenarios.py`, `negative-scenarios.md` |
+| Element 6 (about twenty obligations) | done on a purpose-written module, not on an existing third-party project | `docs/specifications/examples/ledger/`, `tools/test-ledger.py` |
 | M6 Evaluation | not started | needs decisions on the agent, the tasks and the budget |
 
-Nothing is claimed beyond what the tests check: the proof workspace models the implementation by hand (no TypeScript-to-Dafny translation yet), and element 6 of the table above (about twenty obligations from one real project) has not been run.
+Nothing is claimed beyond what the tests check: the proof workspace models the implementation by hand (no TypeScript-to-Dafny translation yet), and the twenty-obligation scenario ran on a module written for the purpose, so how Core fares on someone else's code is still unknown.
 
 
 ## Evaluation
