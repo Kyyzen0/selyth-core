@@ -104,6 +104,8 @@ def check_shapes():
     out = translated("export function f(a: number, b: number): number { let t = 0; t -= (a - b); return t; }",
                      {"functions": {"f": {"dafny_name": "F", "returns": [["result", "int"]]}}})
     check("t := t - (a - b);" in out, "the right operand of -= keeps its parentheses", out)
+    out = translated("export function f(a: number, b: number): number { return -a + b; }")
+    check("result := -(a as int) + b;" in out, "unary minus converts a nat to int first (Dafny would type -a as a nat)", out)
     out = translated("export function f(a: number, b: number): number { if ((a < b) === (b < a)) return 1; return 0; }")
     check("if (a < b) == (b < a) {" in out, "a comparison inside a comparison is parenthesised (Dafny does not chain them)", out)
     out = translated("export function f(a: number, b: number): number { if (a < b && b < a || a === b) return 1; return 0; }")

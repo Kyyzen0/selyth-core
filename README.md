@@ -4,7 +4,7 @@
 
 Selyth is an experimental open-source project on trustworthy AI-assisted software development. Its long-term ambition is a universal programming language designed jointly for human developers and AI agents. Its first deliverable is not that language — it is the verification foundation such a language would need, built now, against an existing prover, on an ordinary machine, at zero marginal cost.
 
-**Status:** The Core prototype (milestones M0 to M5 of [`docs/roadmap/core-v0.1.md`](docs/roadmap/core-v0.1.md)) is implemented and tested; the evaluation (M6) and the language are not. A pure subset of TypeScript is translated to Dafny ([`docs/specifications/ts-to-dafny.md`](docs/specifications/ts-to-dafny.md)); code outside it is refused. The architecture is still a design: every architectural choice is recorded with an explicit status in [`docs/architecture/decision-register.md`](docs/architecture/decision-register.md), so that no open question silently becomes a decision.
+**Status:** The Core prototype (milestones M0 to M5 of [`docs/roadmap/core-v0.1.md`](docs/roadmap/core-v0.1.md)) is implemented and tested; the language is not, and the evaluation (M6) is prepared (a protocol and a tested harness, [`docs/evaluation/protocol.md`](docs/evaluation/protocol.md)) but not run: it needs an agent, tasks and a budget that are the project owner's to choose. A pure subset of TypeScript is translated to Dafny ([`docs/specifications/ts-to-dafny.md`](docs/specifications/ts-to-dafny.md)); code outside it is refused. The architecture is still a design: every architectural choice is recorded with an explicit status in [`docs/architecture/decision-register.md`](docs/architecture/decision-register.md), so that no open question silently becomes a decision.
 
 > **Where things stand:** run `make test` (see below). What is done and what remains is in [`docs/roadmap/next-tasks-for-claude.md`](docs/roadmap/next-tasks-for-claude.md); the audit that preceded the implementation is [`docs/audit-phase-a.md`](docs/audit-phase-a.md), kept as written.
 
@@ -102,6 +102,8 @@ ts/                                   TypeScript port of the adapter (src/), tes
   test-dafny-backend.py               Backend tests against a real Dafny
   ts_to_dafny.py                      TypeScript subset -> Dafny methods (proof model generated from the code)
   test-ts-to-dafny.py                 Translator tests: regeneration, refusals, differential, mutants
+  evaluate.py                         M6 harness: three gates, one prover, scored against an independent oracle
+  test-evaluate.py                    Harness tests (needs Dafny and Node)
   ts_adapter.py                       TypeScript adapter: Obligation Set -> Verification IR (deterministic)
   test-ts-adapter.py                  Adapter tests: byte-identical IR, reproducibility key, lowering
   policy_engine.py                    Deterministic policy engine: decide, replay, policy digest
@@ -133,6 +135,7 @@ Some rules cannot be expressed in JSON Schema at all, such as a policy digest th
 8. **`tools/test-scenarios.py`**, the negative scenarios of milestone M5, end to end with a real Dafny: an off-by-one that passes plain Dafny is `rejected` naming `OBL-0008`; weakening or deleting the obligation it violates, or editing the policy, is `rejected` by digest mismatch against the human-approved lock ([`negative-scenarios.md`](docs/specifications/negative-scenarios.md)).
 9. **`tools/test-ledger.py`** (and `ts/test/ledger.test.ts`), the twenty-obligation money module of [`docs/specifications/examples/ledger/`](docs/specifications/examples/ledger/README.md) against a real Dafny: all twenty `kernel-proven` and accepted under the lock; a bug injected for each obligation, which it must fail on, and which Dafny alone accepts in seventeen cases; a precondition nobody calls is refused as vacuous; bugs written in the TypeScript itself are rejected through the generated model.
 10. **`tools/test-ts-to-dafny.py`**, the translator ([`ts-to-dafny.md`](docs/specifications/ts-to-dafny.md)): the ledger's committed Dafny workspace is exactly the translation of `ledger.ts`; everything outside the subset (strings, calls, ternaries, bare `/`, signed division, two loops, a name the specification lacks) is refused; random expressions and loop conditions give the same value read as TypeScript and as the emitted Dafny text; twelve deliberately broken translators are caught.
+11. **`tools/test-evaluate.py`**, the instrument of milestone M6 ([`docs/evaluation/protocol.md`](docs/evaluation/protocol.md)): a scripted corpus of 23 submissions (a null agent, correct refactors, bugs, a specification gap, agents that tamper with the Obligation Set or the proof model) is run through three gates that share one prover (Dafny alone, the obligations without a lock, Core) and scored against an oracle that shares nothing with them. It asserts the properties of the instrument (labels confirmed, null-agent floor, the full gate accepts no violating submission, the unlocked gate misses what the lock catches), not rates: nothing here says how a real agent would fare.
 
 Without `make`:
 
