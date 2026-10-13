@@ -25,6 +25,26 @@ const forAll: Check = (sample) => {
   for (let i = 0; i < SAMPLES; i++) assert.ok(sample(), `counterexample on sample ${i}`);
 };
 
+type Accrue = (balance: number, step: number, periods: number, observe?: (i: number, total: number) => void) => number;
+
+/** The loop obligations, observed on a run of `impl` through its hook (at every iteration head and at exit). */
+function loopProperties(impl: Accrue): { bounded: boolean; terminates: boolean; accumulates: boolean } {
+  const b = int(M), step = int(M), periods = int(50);
+  let bounded = true, accumulates = true, terminates = true, visits = 0, last = Infinity;
+  impl(b, step, periods, (i, total) => {
+    if (++visits > periods + 2) throw new Error("the loop did not stop");
+    bounded &&= 0 <= i && i <= periods;
+    accumulates &&= total === b + i * step;
+    terminates &&= periods - i < last && periods - i >= 0;
+    last = periods - i;
+  });
+  return { bounded, terminates, accumulates };
+}
+
+const observed = (impl: Accrue, pick: "bounded" | "terminates" | "accumulates"): boolean => {
+  try { return loopProperties(impl)[pick]; } catch { return false; }
+};
+
 // Preconditions are necessary: where one fails, the code does break the matching guarantee.
 const properties: Record<string, () => boolean> = {
   "LED-01": () => { const b = int(M), a = int(M) + 1, cap = b + int(a - 1); return deposit(b, a, cap) > cap; },
@@ -42,9 +62,9 @@ const properties: Record<string, () => boolean> = {
   "LED-13": () => { const t = int(M); const [, rem] = share(t, 0); return !(rem < 0); },
   "LED-14": () => { const t = int(M), p = 1 + int(1000); const [s, r] = share(t, p); return s * p + r === t; },
   "LED-15": () => { const t = int(M), p = 1 + int(1000); const [, r] = share(t, p); return r < p; },
-  "LED-16": () => { const periods = int(50); let i = 0; let ok = true; while (i < periods) { i++; ok = ok && 0 <= i && i <= periods; } return ok; },
-  "LED-17": () => { const periods = int(50); let i = 0, steps = 0; while (i < periods) { i++; steps++; } return steps === periods; },
-  "LED-18": () => { const b = int(M), step = int(M), n = int(50); return accrue(b, step, n) === b + n * step; },
+  "LED-16": () => loopProperties(accrue).bounded,
+  "LED-17": () => loopProperties(accrue).terminates,
+  "LED-18": () => loopProperties(accrue).accumulates,
   "LED-19": () => { const b = int(M), step = int(M), n = int(50); return accrue(b, step, n) === b + n * step; },
   "LED-20": () => { const f = int(M), t = int(M), a = int(f); const [f2, t2] = transfer(f, t, a); return f2 + t2 === f + t; },
 };
@@ -56,6 +76,21 @@ test("every obligation of the ledger has an executable predicate, and no predica
 for (const [id, property] of Object.entries(properties)) {
   test(`${id} holds on ${SAMPLES} pseudo-random inputs of the real code`, () => forAll(property));
 }
+
+test("the loop predicates observe the real accrue, and fail on loops that break each obligation", () => {
+  // Each wrong loop gives the right final answer for some inputs, so only observing the loop can tell.
+  const extraIteration: Accrue = (b, s, p, o) => { let t = b; for (let i = 0; i <= p; i++) { o?.(i, t); t += s; } o?.(p + 1, t); return t - s; };
+  const noProgress: Accrue = (b, s, p, o) => { let t = b; let i = 0; while (i < p) { o?.(i, t); t += s; i += 0; if (t > b + 5 * s + 1) i = p; } o?.(p, t); return t; };
+  const driftingTotal: Accrue = (b, s, p, o) => { let t = b; for (let i = 0; i < p; i++) { o?.(i, t); t += s + 1; } o?.(p, t - p); return t - p; };
+  forAll(() => observed(accrue, "bounded") && observed(accrue, "terminates") && observed(accrue, "accumulates"));
+  assert.throws(() => forAll(() => observed(extraIteration, "bounded")));
+  assert.throws(() => forAll(() => observed(noProgress, "terminates")));
+  assert.throws(() => forAll(() => observed(driftingTotal, "accumulates")));
+});
+
+test("accrue behaves the same with and without the hook", () => {
+  forAll(() => { const b = int(M), s = int(M), n = int(50); return accrue(b, s, n) === accrue(b, s, n, () => {}); });
+});
 
 test("the predicates can fail: a deliberately wrong implementation is caught", () => {
   const wrongWithdraw = (b: number, a: number): number => b - a - 1;

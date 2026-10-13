@@ -27,11 +27,22 @@ export function share(total: number, parts: number): [number, number] {
   return [Math.floor(total / parts), total % parts];
 }
 
-/** Add a fixed step once per period. */
-export function accrue(balance: number, step: number, periods: number): number {
+/**
+ * Add a fixed step once per period.
+ *
+ * `observe` is a test hook, called at the head of every iteration and once more when the loop
+ * exits, with the loop counter and the running total: the points where a loop invariant must
+ * hold. It does not change the result and the Dafny model has no counterpart for it.
+ */
+export function accrue(balance: number, step: number, periods: number,
+                       observe?: (i: number, total: number) => void): number {
   let total = balance;
-  for (let i = 0; i < periods; i++) {
+  let i = 0;
+  while (true) {
+    observe?.(i, total);
+    if (i >= periods) break;
     total += step;
+    i++;
   }
   return total;
 }

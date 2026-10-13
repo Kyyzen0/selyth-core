@@ -118,12 +118,18 @@ def enclosing_declaration(source, obligation_id):
     return None
 
 
+def declaration_count(source, name):
+    """How many declarations of `name` the workspace has (methods in different classes may share one)."""
+    return sum(1 for n in _DECLARATION.findall(strip_comments(source)) if n == name)
+
+
 def call_sites(source, name):
     """How many times `name(` is used in the workspace other than at its own declaration.
 
-    Lexical, on comment-free text: it counts a use that is a call. It cannot see a call made
-    through a name Dafny resolves differently, which is why a precondition with no call
-    site found is reported as unknown rather than proven.
+    Lexical, on comment-free text: it counts a use that is a call. It cannot tell which of
+    several same-named declarations a call resolves to, so the caller of this function refuses
+    a name declared more than once (declaration_count); and a precondition with no call site
+    found is reported as unknown rather than proven.
     """
     text, count = strip_comments(source), 0
     for m in re.finditer(r"\b" + re.escape(name) + r"\s*\(", text):
@@ -228,6 +234,9 @@ def run_obligation(dafny, solver, workspace_name, source, unit, resource_limit, 
         # Attached to a method nobody calls, a precondition makes the body easier and checks
         # nothing: the proof would be vacuous.
         name = enclosing_declaration(source, oid)
+        if name is not None and declaration_count(source, name) > 1:
+            return "unknown", [f"{oid} is a precondition of {name}, but the workspace declares {name} more "
+                               "than once: a call site cannot be attributed to this one, so none is assumed"], cost
         if name is None or call_sites(source, name) == 0:
             return "unknown", [f"{oid} is a precondition, but the workspace has no call site of "
                                f"{name or 'its method'}: verifying it would prove nothing"], cost

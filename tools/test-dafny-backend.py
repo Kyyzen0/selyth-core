@@ -144,6 +144,19 @@ def check_units():
     check(backend.call_sites("function {:opaque} F(): int { 1 }\nmethod C() { var z := F(); }", "F") == 1,
           "a declaration with an attribute is still a declaration")
 
+    shadow = ("class A {\n  method Target(x: nat)\n    // selyth:obligation P\n  { }\n}\n"
+              "class B {\n  method Target(x: nat) { }\n}\n"
+              "method Client(b: B) { b.Target(1); }\n")
+    check(backend.declaration_count(shadow, "Target") == 2 and backend.call_sites(shadow, "Target") == 1,
+          "(setup) a same-named method elsewhere makes a lexical call site ambiguous")
+    outcome, diagnostics, _ = backend.run_obligation(None, None, "w.dfy", shadow, {
+        "obligation_id": "P", "clause": {"keyword": "requires", "expression": "x > 0"}}, 1, 1, {})
+    check(outcome == "unknown" and "more than once" in diagnostics[0],
+          "a precondition of a method whose name is declared twice is unknown, not proven by the other's caller",
+          f"    {outcome} {diagnostics}")
+    unique = shadow.replace("class B {\n  method Target(x: nat) { }\n}\n", "class B {\n  method Other(x: nat) { }\n}\n")
+    check(backend.declaration_count(unique, "Target") == 1, "a name declared once is not ambiguous")
+
     heading("Trust-escape scan")
     for text, expected in (
         ("method M() { assume true; }", [("assume")]),
