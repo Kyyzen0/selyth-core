@@ -29,6 +29,7 @@
 | D-08 | The additions-only invariant on proof artifacts | Tamper detection with no trusted third party — the only such mechanism available at €0 | `security-model.md` |
 | D-09 | Bind to content digests, never to branches | A result applied to changed code is not a result | in-toto / SLSA convention |
 | D-10 | Suppression is `forbidden` in V0.1 | Suppression is the practical path to policy weakening; nothing is lost by starting without it | `policy-schema.json` |
+| D-11 | M6 launch parameters fixed before running: Claude Code, `claude-sonnet-4-6`, condition A1, 60 main runs, 350 € cap, evaluator in a separate private repo | Decisions taken before seeing results cannot be tuned to them | ADR-004 |
 
 ### PROPOSED — recommended, awaiting named validation
 

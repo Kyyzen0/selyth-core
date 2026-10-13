@@ -56,7 +56,7 @@ M0 through M5 are the prototype. M6 is the experiment that justifies continuing.
 | M4 Policy engine | done; the 21 negative fixtures are replayed through the engine, which rejects each as invalid input | `tools/policy_engine.py`, `policy-engine.md`, `tools/test-policy-engine.py` |
 | M5 Negative scenarios | done | `tools/test-scenarios.py`, `negative-scenarios.md` |
 | Element 6 (about twenty obligations) | done on a purpose-written module, not on an existing third-party project | `docs/specifications/examples/ledger/`, `tools/test-ledger.py` |
-| M6 Evaluation | not started | needs decisions on the agent, the tasks and the budget |
+| M6 Evaluation | not started; launch decisions taken (agent, tasks, budget, isolation) | [`ADR-004`](../decisions/ADR-004-m6-launch-decisions.md) |
 
 Nothing is claimed beyond what the tests check: the proof workspace is generated from the TypeScript by a translator for a pure subset ([`ts-to-dafny.md`](../specifications/ts-to-dafny.md)), but the invariants, the lemmas and the callers that prove preconditions are still written by hand, and the twenty-obligation scenario ran on a module written for the purpose, so how Core fares on someone else's code is still unknown.
 
