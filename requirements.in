@@ -1,0 +1,8 @@
+# Direct dependencies of the independent schema validation tooling.
+# Edit this file, then regenerate the lock:
+#   uv pip compile requirements.in --universal --python-version 3.9 --generate-hashes -o requirements.txt
+#
+# Both are pinned to one exact version on every supported Python (>= 3.9) so that
+# a verdict cannot change with the interpreter.
+jsonschema==4.25.1
+jsonschema-specifications==2025.9.1

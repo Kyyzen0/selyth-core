@@ -72,6 +72,7 @@ docs/
   specifications/
     report-schema.json                Verification report schema
     policy-schema.json                Acceptance policy schema
+    validation-layers.md              What JSON Schema enforces vs. what the policy engine must
   roadmap/
     core-v0.1.md                      Minimal prototype scope and milestones
     language-evolution.md             Core to the universal language
@@ -80,20 +81,37 @@ docs/
     prior-art.md                      Comparative analysis of prior art
     technical-risks.md                Prioritised risk register
   rapport-final.md                    Phase C report, in French
+Makefile                              `make test`: builds the pinned venv, runs all schema tests
+requirements.in / requirements.txt    Direct dependencies / hash-locked environment
 tools/
-  minischema.py                       Scoped JSON Schema validator
+  validate.py                         Independent Draft 2020-12 validator (jsonschema)
+  test-validation.py                  Primary schema suite: legacy fixtures + hardening
+  minischema.py                       Scoped JSON Schema validator (legacy)
   test-schemas.py                     Schema fixtures: 23 cases, 21 must fail
 ```
 
 ## Running the schema tests
 
 ```
-python3 tools/test-schemas.py
+make test
 ```
 
-Twenty-three cases: two valid documents that must pass, and twenty-one that must fail, covering every anti-overclaim rule, every decision-consistency rule, and every policy-integrity constraint. The validator covers only the JSON Schema keywords these two schemas use, and the test asserts that it uses no keyword the validator does not implement — so a schema cannot quietly rely on a rule that is never checked.
+This builds a virtualenv (`.venv`, Python 3.9 or newer) from the hash-locked `requirements.txt` and runs two suites:
 
-The first implementation task in `docs/roadmap/core-v0.1.md` is to replay these same fixtures under a production validator.
+1. **`tools/test-validation.py`, the primary suite**, under the independent [`jsonschema`](https://python-jsonschema.readthedocs.io/) library, pinned, in its Draft 2020-12 mode. It replays the 23 fixtures of `tools/test-schemas.py` unchanged: two valid documents that must pass and twenty-one that must fail. For every rejection it also requires that the *intended* rule is among the reported errors, because a fixture that fails for an unrelated reason proves nothing. It further checks that each schema is a valid Draft 2020-12 schema with no duplicate key, no unknown keyword and no dangling `$ref`, so a schema cannot quietly rely on a rule that is never checked.
+2. **`tools/test-schemas.py`, the original suite**, under `tools/minischema.py`, kept as a secondary check.
+
+Some rules cannot be expressed in JSON Schema at all, such as a policy digest that must equal the digest recorded in the decision. The suite lists those as `[gap ]` lines: documents that are structurally valid but must be refused by the policy engine, which does not exist yet. They are known holes, not failures, and the split is documented in [`docs/specifications/validation-layers.md`](docs/specifications/validation-layers.md).
+
+Without `make`:
+
+```
+python3 -m venv .venv
+.venv/bin/pip install --require-hashes -r requirements.txt
+.venv/bin/python tools/test-validation.py
+```
+
+To validate one document against one schema: `.venv/bin/python tools/validate.py docs/specifications/report-schema.json my-report.json`. To change a dependency, edit `requirements.in` and regenerate the lock with the command written at the top of that file.
 
 ## Requirements
 
