@@ -93,8 +93,8 @@ def entry(report, oid):
     return next(e for e in report["obligations"] if e["obligation_id"] == oid)
 
 
-def decide(policy, report, document):
-    return engine.decide(policy, report, document)
+def decide(policy, report, document, lock=None):
+    return engine.decide(policy, report, document, lock)
 
 
 def rule_ids(decision):
@@ -525,11 +525,109 @@ def check_determinism():
         check(cli("policy-digest", pol) == 0, "CLI: policy-digest exits 0")
 
 
+def check_lock():
+    heading("The lock: policy and obligations approved outside the agent's reach")
+    document, policy = the_set(), accept_all_policy()
+    lock = engine.make_lock(policy, document, "project-owner")
+    lock_schema = validate.load_schema(ROOT / "docs" / "specifications" / "lock-schema.json")
+    check(not validate.validate(lock, lock_schema), "a generated lock is valid for lock-schema.json")
+    report = build_report(policy, document)
+    check(decide(policy, report, document, lock)["result"] == "accepted", "a coherent run under its lock is accepted")
+    check(decide(policy, report, document) == decide(policy, report, document, None),
+          "without a lock nothing changes (backward compatible)")
+
+    # An agent that edits the policy regenerates a report pinned to its own edit.
+    weaker = copy.deepcopy(policy)
+    weaker["on_timeout"] = "escalate"
+    forged = build_report(weaker, document, lambda r: entry(r, "OBL-0008").update(outcome="timeout"))
+    check(decide(weaker, forged, document)["result"] == "needs-human",
+          "(setup) without a lock, the weakened policy and its own report are accepted as coherent: "
+          "a timeout becomes an escalation instead of a rejection")
+    d = decide(weaker, forged, document, lock)
+    check(d["result"] == "rejected" and rule_ids(d) == ["INTEGRITY-POLICY-NOT-APPROVED"]
+          and engine.policy_digest(weaker) in d["violations"][0]["message"] and lock["policy_digest"] in d["violations"][0]["message"],
+          "with the lock, the same pair is rejected by digest mismatch, naming both digests", f"    {d}")
+
+    smaller = copy.deepcopy(document)
+    smaller["obligations"].pop()
+    d = decide(policy, build_report(policy, smaller), smaller, lock)
+    check(d["result"] == "rejected" and rule_ids(d) == ["INTEGRITY-OBLIGATION-SET-NOT-FROZEN"],
+          "dropping an obligation, with a report regenerated for the smaller set, is rejected", f"    {d}")
+    edited = copy.deepcopy(document)
+    edited["obligations"][1]["statement"] = "invariant true"
+    d = decide(policy, build_report(policy, edited), edited, lock)
+    check(d["result"] == "rejected" and rule_ids(d) == ["INTEGRITY-OBLIGATION-SET-NOT-FROZEN"],
+          "weakening an obligation to `invariant true` is rejected", f"    {d}")
+    both = decide(weaker, build_report(weaker, edited), edited, lock)
+    check(rule_ids(both) == ["INTEGRITY-POLICY-NOT-APPROVED", "INTEGRITY-OBLIGATION-SET-NOT-FROZEN"],
+          "both edits are reported", f"    {both}")
+
+    reformatted = json.loads(json.dumps(policy, indent=7, sort_keys=True))
+    reformatted["cost_budget"]["fast_wall_ms"] = 2000.0
+    check(decide(reformatted, build_report(reformatted, document), document, lock)["result"] == "accepted",
+          "reformatting or reordering keys is not an edit: same digest, still accepted")
+    reordered = copy.deepcopy(document)
+    reordered["obligations"].reverse()
+    check(decide(policy, build_report(policy, reordered), reordered, lock)["result"] == "accepted",
+          "reordering the Obligation Set is not an edit either")
+
+    forged_lock = engine.make_lock(weaker, edited, "agent")
+    check(decide(weaker, build_report(weaker, edited), edited, forged_lock)["result"] == "accepted",
+          "KNOWN LIMIT: an agent that also rewrites the lock is not detected; the lock is protected "
+          "procedurally (signed commit, protected path), not by Core")
+    check(replay_with_lock(policy, document, lock), "replay with the lock reproduces the recorded decision")
+
+    with tempfile.TemporaryDirectory(prefix="selyth-lock-") as tmp:
+        def write(name, doc):
+            path = Path(tmp) / name
+            path.write_text(json.dumps(doc), encoding="utf-8")
+            return str(path)
+
+        def cli(*args):
+            return subprocess.run([sys.executable, str(TOOLS / "policy_engine.py"), *args],
+                                  capture_output=True, text=True)
+        pol, rep, doc = write("p.json", policy), write("r.json", build_report(policy, document)), write("s.json", document)
+        made = cli("lock", pol, doc, "--approved-by", "project-owner")
+        check(made.returncode == 0 and json.loads(made.stdout) == lock, "CLI: `lock` prints the lock for a policy and a set")
+        lk = write("lock.json", lock)
+        check(cli("decide", pol, rep, doc, "--lock", lk).returncode == 0, "CLI: decide --lock accepts the approved run")
+        wp = write("wp.json", weaker)
+        wr = write("wr.json", build_report(weaker, document))
+        run = cli("decide", wp, wr, doc, "--lock", lk)
+        check(run.returncode == 1 and "INTEGRITY-POLICY-NOT-APPROVED" in run.stdout,
+              "CLI: decide --lock rejects the weakened policy (exit 1)", run.stdout)
+        check(cli("decide", wp, wr, doc).returncode == 0, "CLI: without --lock the same weakened pair is accepted")
+        check(cli("decide", pol, rep, doc, "--lock", write("bad.json", {"policy_digest": "x"})).returncode == 2,
+              "CLI: an invalid lock exits 2")
+        check(cli("lock", pol, doc).returncode == 2, "CLI: `lock` needs --approved-by")
+        broken = copy.deepcopy(policy)
+        del broken["title"]
+        run = cli("lock", write("broken-policy.json", broken), doc, "--approved-by", "project-owner")
+        check(run.returncode == 2 and "policy_digest" not in run.stdout and "not valid" in run.stdout + run.stderr,
+              "CLI: `lock` refuses a policy that violates policy-schema.json and prints no lock",
+              f"    exit {run.returncode}: {run.stdout!r} {run.stderr!r}")
+        invalid_set = copy.deepcopy(document)
+        invalid_set["obligations"] = []
+        check(cli("lock", pol, write("empty-set.json", invalid_set), "--approved-by", "project-owner").returncode == 2,
+              "CLI: `lock` refuses an invalid Obligation Set too")
+
+
+def replay_with_lock(policy, document, lock):
+    """Replay is lock-aware: a decision recorded under a lock is only reproduced with that lock."""
+    weaker = copy.deepcopy(policy)
+    weaker["on_timeout"] = "escalate"
+    report = build_report(weaker, document)
+    report["decision"] = decide(weaker, report, document, lock)  # rejected: policy not approved
+    return (report["decision"]["result"] == "rejected" and engine.replay(weaker, report, document, lock)
+            and not engine.replay(weaker, report, document))
+
+
 def main():
     check_scenarios()
     check_lattice_and_digest()
     check_exhaustive_safety()
     check_determinism()
+    check_lock()
     print(f"\n{'FAILED' if FAILURES else 'all checks passed'}: {len(FAILURES)} failure(s)")
     for label, detail in FAILURES:
         print(f"\n--- {label}\n{detail}")

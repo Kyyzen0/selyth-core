@@ -9,8 +9,8 @@ a clock; the adapter and the policy engine stay pure.
 
 Usage:
   dafny_backend.py verify --ir IR.json --workspace W.dfy --obligation-set S.json \\
-      --policy P.json [--dafny PATH] [--resource-limit N] [--time-limit SECONDS] \\
-      [--produced-at RFC3339]
+      --policy P.json [--lock LOCK.json] [--dafny PATH] [--resource-limit N] \\
+      [--time-limit SECONDS] [--produced-at RFC3339]
 Prints the report. Exit status: 0 accepted, 1 rejected, 3 needs-human,
 2 usage error, unreadable input, or a tool that is not the declared one.
 """
@@ -240,7 +240,7 @@ def sha256_bytes(data):
 
 
 def build_report(ir, obligation_set, policy, workspace_bytes, workspace_name, produced_at,
-                 dafny, solver, version, resource_limit, time_limit):
+                 dafny, solver, version, resource_limit, time_limit, lock=None):
     source = workspace_bytes.decode("utf-8")
     set_digest = oset.set_digest(obligation_set)
     if ir["obligation_set"]["digest"] != set_digest:
@@ -284,13 +284,13 @@ def build_report(ir, obligation_set, policy, workspace_bytes, workspace_name, pr
                       "Each obligation is verified alone with the workspace's hand-written clauses; "
                       "that the workspace models the implementation is not checked."]},
     }
-    report["decision"] = engine.decide(policy, report, obligation_set)
+    report["decision"] = engine.decide(policy, report, obligation_set, lock)
     return report
 
 
 def parse_args(argv):
     options = {"--dafny": None, "--resource-limit": str(DEFAULT_RESOURCE_LIMIT),
-               "--time-limit": str(DEFAULT_TIME_LIMIT), "--produced-at": None}
+               "--time-limit": str(DEFAULT_TIME_LIMIT), "--produced-at": None, "--lock": None}
     required = {"--ir": None, "--workspace": None, "--obligation-set": None, "--policy": None}
     if len(argv) < 2 or argv[1] != "verify":
         raise ValueError("usage")
@@ -326,6 +326,7 @@ def main(argv):
         policy = validate.load_json(required["--policy"])
         if validate.validate(policy, validate.load_schema(oset.ROOT / "docs" / "specifications" / "policy-schema.json")):
             raise BackendError("the policy is not valid against policy-schema.json")
+        lock = engine.load_lock(options["--lock"]) if options["--lock"] else None
         dafny = resolve_dafny(options["--dafny"])
         version, solver = tool_versions(dafny)
         if ir["backend"] != {"name": BACKEND_NAME, "version": version}:
@@ -335,7 +336,7 @@ def main(argv):
         report = build_report(
             ir, document, policy, workspace.read_bytes(), workspace.name,
             options["--produced-at"] or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            dafny, solver, version, resource_limit, time_limit)
+            dafny, solver, version, resource_limit, time_limit, lock)
     except (BackendError, oset.ObligationSetError, validate.SchemaError, OSError,
             json.JSONDecodeError, subprocess.SubprocessError, UnicodeDecodeError) as exc:
         print(f"[ERROR] {exc}", file=sys.stderr)

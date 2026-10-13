@@ -1,0 +1,6 @@
+{
+  "approved_by": "project-owner",
+  "obligation_set_digest": "sha256:1ee6ae78adc7350b90066fa64c778715a50cbc1eed2d319678cd54d0134eea2a",
+  "policy_digest": "sha256:958162bd3ec3b8c798ce2d013e724b87f247fc11e199d2c1006b8a34dfe88310",
+  "selyth_lock_version": "0.1.0"
+}

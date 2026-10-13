@@ -12,9 +12,10 @@ verdict, and every inconsistency JSON Schema cannot see produces `rejected` or
 `needs-human`, never `accepted`.
 
 Usage:
-  policy_engine.py decide        <policy.json> <report.json> <obligation-set.json>
-  policy_engine.py replay        <policy.json> <report.json> <obligation-set.json>
+  policy_engine.py decide        <policy.json> <report.json> <obligation-set.json> [--lock LOCK.json]
+  policy_engine.py replay        <policy.json> <report.json> <obligation-set.json> [--lock LOCK.json]
   policy_engine.py policy-digest <policy.json>
+  policy_engine.py lock          <policy.json> <obligation-set.json> --approved-by NAME
 Exit status: decide/replay 0 accepted (replay: report's decision reproduced),
 1 rejected (replay: not reproduced), 3 needs-human, 2 usage or unreadable/invalid input.
 """
@@ -153,9 +154,29 @@ def _judge(entry, set_obligation, policy, evaluated):
                       oid), None
 
 
-def _integrity(policy, report, obligation_set):
+def make_lock(policy, obligation_set, approved_by):
+    """The lock a human approves: the digests of the policy and the Obligation Set."""
+    return {"selyth_lock_version": "0.1.0", "obligation_set_digest": oset.set_digest(obligation_set),
+            "policy_digest": policy_digest(policy), "approved_by": approved_by}
+
+
+def _lock_problems(policy, obligation_set, lock):
+    problems = []
+    if lock["policy_digest"] != policy_digest(policy):
+        problems.append(("INTEGRITY-POLICY-NOT-APPROVED",
+                         f"the policy has digest {policy_digest(policy)} but the lock approved "
+                         f"{lock['policy_digest']}: the policy was changed after approval"))
+    if lock["obligation_set_digest"] != oset.set_digest(obligation_set):
+        problems.append(("INTEGRITY-OBLIGATION-SET-NOT-FROZEN",
+                         f"the Obligation Set has digest {oset.set_digest(obligation_set)} but the lock "
+                         f"froze {lock['obligation_set_digest']}: the obligations were changed after approval"))
+    return problems
+
+
+def _integrity(policy, report, obligation_set, lock=None):
     """Reasons the three documents cannot be decided together."""
-    problems = [("INTEGRITY-POLICY-INVALID", p) for p in policy_problems(policy)]
+    problems = _lock_problems(policy, obligation_set, lock) if lock else []
+    problems += [("INTEGRITY-POLICY-INVALID", p) for p in policy_problems(policy)]
     claimed, decided = report["policy"], report["decision"]["policy_digest"]
     if claimed["policy_digest"] != decided:
         problems.append(("INTEGRITY-POLICY-DIGEST-MISMATCH",
@@ -179,16 +200,17 @@ def _integrity(policy, report, obligation_set):
     return problems
 
 
-def decide(policy, report, obligation_set):
+def decide(policy, report, obligation_set, lock=None):
     """Return the decision (shaped like `decision` in report-schema.json).
 
-    Preconditions: the three documents are valid against their schemas. The report's own
-    `decision` is a claim and is ignored except for the digest it names.
+    Preconditions: the three documents (and the lock, if given) are valid against their
+    schemas. The report's own `decision` is a claim and is ignored except for the digest it
+    names. With a lock, the policy and the Obligation Set must be the ones it approved.
     """
     # Digests are taken over NFC text, so two spellings of one string are one string:
     # decide on the normalised documents or a pinned digest would not pin the decision.
     policy, report, obligation_set = (_canonical_value(d) for d in (policy, report, obligation_set))
-    problems = _integrity(policy, report, obligation_set)
+    problems = _integrity(policy, report, obligation_set, lock)
     if problems:
         return {"result": "rejected", "policy_digest": policy_digest(policy),
                 "rules_evaluated": 0,
@@ -213,48 +235,79 @@ def decide(policy, report, obligation_set):
             "escalations": escalations}
 
 
-def replay(policy, report, obligation_set):
+def replay(policy, report, obligation_set, lock=None):
     """Does the decision recorded in the report equal what the engine decides?"""
-    return decide(policy, report, obligation_set) == report["decision"]
+    return decide(policy, report, obligation_set, lock) == report["decision"]
 
 
 def canonical_decision(decision):
     return json.dumps(decision, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def evaluate_files(policy_path, report_path, set_path):
-    """Read and structurally validate the three documents, then decide. Does the I/O."""
-    policy = validate.load_json(policy_path)
-    report = validate.load_json(report_path)
+def load_lock(path):
+    lock = validate.load_json(path)
+    problems = validate.validate(lock, validate.load_schema(SPECS / "lock-schema.json"))
+    if problems:
+        raise validate.SchemaError("lock is not valid: " + "; ".join(f"{p.path}: {p.message}" for p in problems))
+    return lock
+
+
+def load_valid(path, name, schema_file):
+    """Read a JSON document and require it to be valid against its schema."""
+    instance = validate.load_json(path)
+    problems = validate.validate(instance, validate.load_schema(SPECS / schema_file))
+    if problems:
+        raise validate.SchemaError(f"{name} is not valid: " + "; ".join(
+            f"{p.path}: {p.message}" for p in problems))
+    return instance
+
+
+def evaluate_files(policy_path, report_path, set_path, lock_path=None):
+    """Read and structurally validate the documents, then decide. Does the I/O."""
+    policy = load_valid(policy_path, "policy", "policy-schema.json")
+    report = load_valid(report_path, "report", "report-schema.json")
     document = oset.load_obligation_set(set_path)
-    for name, instance, schema_file in (("policy", policy, "policy-schema.json"),
-                                        ("report", report, "report-schema.json")):
-        problems = validate.validate(instance, validate.load_schema(SPECS / schema_file))
-        if problems:
-            raise validate.SchemaError(f"{name} is not valid: " + "; ".join(
-                f"{p.path}: {p.message}" for p in problems))
-    return policy, report, document
+    return policy, report, document, load_lock(lock_path) if lock_path else None
 
 
 def main(argv):
-    arity = {"decide": 3, "replay": 3, "policy-digest": 1}
-    if len(argv) < 2 or arity.get(argv[1]) != len(argv) - 2:
+    args = argv[1:]
+    lock_path = approved_by = None
+    for flag in ("--lock", "--approved-by"):
+        if flag in args:
+            i = args.index(flag)
+            if i + 1 >= len(args):
+                args = []
+                break
+            value = args[i + 1]
+            del args[i:i + 2]
+            lock_path, approved_by = (value, approved_by) if flag == "--lock" else (lock_path, value)
+    arity = {"decide": 3, "replay": 3, "policy-digest": 1, "lock": 2}
+    if not args or arity.get(args[0]) != len(args) - 1 or (args[0] == "lock") != bool(approved_by) \
+            or (approved_by and lock_path):
         print(__doc__.strip().split("Usage:")[1].split("Exit status")[0].rstrip())
         return 2
+    command, files = args[0], args[1:]
     try:
-        if argv[1] == "policy-digest":
-            print(policy_digest(validate.load_json(argv[2])))
+        if command == "policy-digest":
+            print(policy_digest(validate.load_json(files[0])))
             return 0
-        policy, report, document = evaluate_files(*argv[2:])
+        if command == "lock":
+            # An approval artifact for a document that cannot be used would have to be redone.
+            print(json.dumps(make_lock(load_valid(files[0], "policy", "policy-schema.json"),
+                                       oset.load_obligation_set(files[1]), approved_by),
+                             indent=2, sort_keys=True))
+            return 0
+        policy, report, document, lock = evaluate_files(*files, lock_path)
     except (OSError, ValueError, oset.ObligationSetError, validate.SchemaError) as exc:
         print(f"[ERROR] {exc}")
         return 2
-    if argv[1] == "replay":
-        same = replay(policy, report, document)
-        print(f"[{'PASS' if same else 'FAIL'}] the decision recorded in {argv[3]} "
+    if command == "replay":
+        same = replay(policy, report, document, lock)
+        print(f"[{'PASS' if same else 'FAIL'}] the decision recorded in {files[1]} "
               f"{'is' if same else 'is not'} what the engine decides")
         return 0 if same else 1
-    decision = decide(policy, report, document)
+    decision = decide(policy, report, document, lock)
     print(canonical_decision(decision))
     return {"accepted": 0, "rejected": 1, "needs-human": 3}[decision["result"]]
 

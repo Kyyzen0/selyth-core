@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://selyth.dev/schemas/lock/v0.1.0",
+  "title": "Selyth Lock",
+  "description": "The human-approved anchor of a verification: the digests of the Obligation Set and of the acceptance policy that a change must be decided against. A report pins the policy it was produced under, but an agent that edits the policy can regenerate a report pinned to its own edit; only a digest approved outside the agent's reach detects that. The lock is that digest. Its integrity is procedural in V0.1 (a signed commit, a protected path): Core compares against it, it cannot protect it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["selyth_lock_version", "obligation_set_digest", "policy_digest", "approved_by"],
+  "properties": {
+    "selyth_lock_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "obligation_set_digest": {
+      "description": "Digest of the approved Obligation Set (see obligation-set-canonicalization.md).",
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "policy_digest": {
+      "description": "Digest of the approved acceptance policy (see policy-engine.md).",
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "approved_by": {
+      "description": "The human principal who approved these digests.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}
