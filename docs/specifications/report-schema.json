@@ -386,8 +386,9 @@
         },
         "evidence": { "$ref": "#/$defs/evidence" },
         "outcome": {
+          "description": "'proven' is a machine-checked proof. 'passed' is the empirical counterpart: a test, a runtime assertion, a human waiver or a model's corroboration completed without finding a problem. It proves nothing and says so through the evidence kind and its soundness ceiling.",
           "type": "string",
-          "enum": ["proven", "failed", "timeout", "not-run", "unknown"]
+          "enum": ["proven", "passed", "failed", "timeout", "not-run", "unknown"]
         },
         "diagnostics": {
           "type": "array",
@@ -410,6 +411,22 @@
               "evidence": {
                 "properties": {
                   "kind": { "enum": ["kernel-proven", "machine-checked-model"] }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "outcome": { "const": "passed" } },
+            "required": ["outcome"]
+          },
+          "then": {
+            "description": "The mirror of the rule above: 'passed' is only available to the four evidence kinds that are not machine-checked proofs. A machine check that succeeded says 'proven'; it cannot be downgraded to a pass, and an empirical check cannot be promoted to a proof.",
+            "properties": {
+              "evidence": {
+                "properties": {
+                  "kind": { "enum": ["property-tested", "runtime-asserted", "llm-corroborated", "human-asserted"] }
                 }
               }
             }

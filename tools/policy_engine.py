@@ -37,6 +37,7 @@ EVIDENCE_LATTICE = ("human-asserted", "llm-corroborated", "runtime-asserted",
                     "property-tested", "machine-checked-model", "kernel-proven")
 RANK = {kind: i for i, kind in enumerate(EVIDENCE_LATTICE)}
 MACHINE_CHECKED = ("machine-checked-model", "kernel-proven")
+EMPIRICAL = ("human-asserted", "llm-corroborated", "runtime-asserted", "property-tested")
 
 
 def _canonical_value(value):
@@ -116,7 +117,7 @@ def _on(policy_action, policy, rule_id, message, oid):
     return _violation(rule_id, message, oid), None
 
 
-def _judge(entry, set_obligation, policy, evaluated):
+def _judge(entry, set_obligation, policy, evaluated, waivers_allowed):
     """Return (violation, escalation); (None, None) means this obligation is accepted."""
     oid, outcome, evidence = entry["obligation_id"], entry["outcome"], entry["evidence"]
     kind = evidence["kind"]
@@ -125,12 +126,34 @@ def _judge(entry, set_obligation, policy, evaluated):
     if outcome == "timeout":
         return _on(policy.get("on_timeout", "reject"), policy, "BLOCK-TIMEOUT",
                    "the check timed out and reached no verdict", oid)
-    if outcome != "proven":  # not-run, unknown, and any value this engine does not know
+    if outcome not in ("proven", "passed"):  # not-run, unknown, and any value this engine does not know
         return _on(policy["on_unknown_evidence"], policy, "BLOCK-NO-VERDICT",
                    f"outcome {outcome!r} is not a verdict", oid)
-    if kind not in MACHINE_CHECKED:
+    if outcome == "proven" and kind not in MACHINE_CHECKED:
         return _violation("BLOCK-PROVEN-WITHOUT-MACHINE-EVIDENCE",
                           f"outcome 'proven' with {kind!r} evidence", oid), None
+    if outcome == "passed":
+        if kind not in EMPIRICAL:
+            return _violation("BLOCK-PASSED-WITHOUT-EMPIRICAL-EVIDENCE",
+                              f"outcome 'passed' with {kind!r} evidence: a machine check that "
+                              "succeeded is a proof", oid), None
+        if kind == "llm-corroborated":
+            return _violation("BLOCK-LLM-NOT-SUFFICIENT",
+                              "a model's corroboration is probabilistic and can never accept an "
+                              "obligation alone", oid), None
+        if kind == "human-asserted":
+            # A human waiver is a suppression: the policy decides whether any is allowed.
+            if policy["suppression"]["mode"] == "forbidden":
+                return _violation("BLOCK-WAIVER-FORBIDDEN",
+                                  "the policy forbids suppression, so a human waiver cannot accept "
+                                  "an obligation", oid), None
+            if not evidence.get("waiver_id"):
+                return _violation("BLOCK-WAIVER-MISSING",
+                                  "a human assertion needs a recorded waiver", oid), None
+            if oid not in waivers_allowed:
+                return _violation("BLOCK-WAIVER-LIMIT",
+                                  f"the policy allows at most {policy['suppression']['max_active']} "
+                                  "active waivers", oid), None
     required = set_obligation["required_evidence_kind"]
     if RANK[kind] < RANK[required]:
         return _violation("BLOCK-EVIDENCE-BELOW-REQUIRED",
@@ -219,8 +242,13 @@ def decide(policy, report, obligation_set, lock=None):
 
     by_id = {o["obligation_id"]: o for o in obligation_set["obligations"]}
     violations, escalations, evaluated = [], [], set()
+    waived = sorted(e["obligation_id"] for e in report["obligations"]
+                    if e["outcome"] == "passed" and e["evidence"]["kind"] == "human-asserted")
+    limit = policy["suppression"].get("max_active")
+    waivers_allowed = set(waived if limit is None else waived[:limit])  # first by obligation_id
     for entry in sorted(report["obligations"], key=lambda e: e["obligation_id"]):
-        violation, escalation = _judge(entry, by_id[entry["obligation_id"]], policy, evaluated)
+        violation, escalation = _judge(entry, by_id[entry["obligation_id"]], policy, evaluated,
+                                       waivers_allowed)
         if violation:
             violations.append(violation)
         if escalation:
