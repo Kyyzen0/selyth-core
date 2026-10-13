@@ -259,10 +259,14 @@ def check_scenarios():
 
     heading("Empirical evidence: the lattice below machine-checked-model is live")
 
-    def empirical_run(kind, required, threshold, outcome="passed", **evidence):
+    def violations_of(decision):
+        return [(v["rule_id"], v["obligation_id"]) for v in decision["violations"]]
+
+    def empirical_run(kind, required, threshold, outcome="passed", suppression="forbidden", **evidence):
         doc = the_set()
         doc["obligations"][0]["required_evidence_kind"] = required
         pol = accept_all_policy(threshold)
+        pol["suppression"] = {"mode": suppression, "requires_human_approval": True, "recorded_in_report": True}
         report = build_report(pol, doc, lambda r: entry(r, "OBL-0007").update(outcome=outcome) or entry(
             r, "OBL-0007")["evidence"].update({"kind": kind, "soundness": CEILING[kind], **evidence}))
         return decide(pol, report, doc), report
@@ -285,10 +289,28 @@ def check_scenarios():
     check(rule_ids(d) == ["DEFAULT-NO-RULE-DECIDES"], "a policy demanding a proof leaves empirical evidence undecided: rejected by default")
     d, _ = empirical_run("llm-corroborated", "llm-corroborated", "human-asserted", model_identity={"name": "m", "version": "1"})
     check(rule_ids(d) == ["BLOCK-LLM-NOT-SUFFICIENT"], "a model's corroboration never accepts an obligation, whatever the policy says", f"    {d}")
-    d, _ = empirical_run("human-asserted", "human-asserted", "human-asserted")
-    check(rule_ids(d) == ["BLOCK-WAIVER-MISSING"], "a human assertion without a recorded waiver is blocked")
     d, _ = empirical_run("human-asserted", "human-asserted", "human-asserted", waiver_id="WAIVER-7")
+    check(rule_ids(d) == ["BLOCK-WAIVER-FORBIDDEN"],
+          "a waiver is a suppression: a policy that forbids suppression refuses it, recorded or not", f"    {d}")
+    d, _ = empirical_run("human-asserted", "human-asserted", "human-asserted", suppression="narrow-only")
+    check(rule_ids(d) == ["BLOCK-WAIVER-MISSING"], "where suppression is allowed, a human assertion without a recorded waiver is blocked")
+    d, _ = empirical_run("human-asserted", "human-asserted", "human-asserted", suppression="narrow-only", waiver_id="WAIVER-7")
     check(d["result"] == "accepted", "...and accepted with one, when the set and the policy allow it")
+    doc = the_set()
+    for o in doc["obligations"]:
+        o["required_evidence_kind"] = "human-asserted"
+    pol = accept_all_policy("human-asserted")
+    pol["suppression"] = {"mode": "narrow-only", "requires_human_approval": True, "recorded_in_report": True, "max_active": 2}
+    report = build_report(pol, doc, lambda r: [
+        (e.update(outcome="passed"), e["evidence"].update(kind="human-asserted", soundness="none", waiver_id="W-" + e["obligation_id"]))
+        for e in r["obligations"]])
+    d = decide(pol, report, doc)
+    check(d["result"] == "rejected" and violations_of(d) == [("BLOCK-WAIVER-LIMIT", "OBL-0009")],
+          "max_active caps the waivers: the first two (by obligation_id) stand, the third is blocked", f"    {d}")
+    pol["suppression"]["max_active"] = 0
+    d = decide(pol, build_report(pol, doc, lambda r: [
+        (e.update(outcome="passed"), e["evidence"].update(kind="human-asserted", soundness="none", waiver_id="W")) for e in r["obligations"]]), doc)
+    check({v["rule_id"] for v in d["violations"]} == {"BLOCK-WAIVER-LIMIT"} and len(d["violations"]) == 3, "max_active 0 allows none")
     d, _ = empirical_run("kernel-proven", "kernel-proven", "kernel-proven", soundness="sound-for-fragment")
     check(rule_ids(d) == ["BLOCK-PASSED-WITHOUT-EMPIRICAL-EVIDENCE"], "'passed' with machine-checked evidence is blocked: it should say proven")
     d, report = empirical_run("property-tested", "property-tested", "property-tested")
@@ -409,14 +431,14 @@ def check_lattice_and_digest():
 
 # ------------------------------------------------------------------ safety, exhaustive
 
-def safe_acceptance(outcome, kind, waiver, required):
+def safe_acceptance(outcome, kind, waiver, required, mode):
     """The only ways an obligation may be accepted, written down independently of the engine."""
     if engine.RANK[kind] < engine.RANK[required]:
         return False
     if outcome == "proven":
         return kind in ("kernel-proven", "machine-checked-model")
     if outcome == "passed":
-        return kind in ("runtime-asserted", "property-tested") or (kind == "human-asserted" and bool(waiver))
+        return kind in ("runtime-asserted", "property-tested") or (kind == "human-asserted" and bool(waiver) and mode == "narrow-only")
     return False
 
 
@@ -431,9 +453,10 @@ def check_exhaustive_safety():
         document = the_set()
         document["obligations"] = document["obligations"][:1]
         document["obligations"][0]["required_evidence_kind"] = required
-        for action, threshold, on_unknown, on_timeout in itertools.product(
-                actions, thresholds, ("reject", "escalate"), ("reject", "escalate")):
+        for action, threshold, on_unknown, on_timeout, mode in itertools.product(
+                actions, thresholds, ("reject", "escalate"), ("reject", "escalate"), ("forbidden", "narrow-only")):
             policy = accept_all_policy()
+            policy["suppression"] = {"mode": mode, "requires_human_approval": True, "recorded_in_report": True}
             rule = policy["rules"][0]
             rule["action"] = action
             rule["requires"] = {"min_evidence_kind": threshold} if threshold else {
@@ -456,10 +479,10 @@ def check_exhaustive_safety():
                 invalid += bool(validate.validate(d, DECISION_SCHEMA))
                 if d["result"] == "accepted":
                     accepted += 1
-                    unsafe += not safe_acceptance(outcome, kind, waiver, required)
+                    unsafe += not safe_acceptance(outcome, kind, waiver, required, mode)
                 if outcome == "failed" and d["result"] != "rejected":
                     unsafe += 1
-    check(runs == 6 * 3 * 7 * 2 * 2 * 7 * 7, f"enumerated {runs} decisions")
+    check(runs == 6 * 3 * 7 * 2 * 2 * 2 * 7 * 7, f"enumerated {runs} decisions")
     check(unsafe == 0, "no unsafe acceptance and no failed obligation ever escapes rejection",
           f"    {unsafe} unsafe")
     check(invalid == 0, "every decision is valid for the decision schema", f"    {invalid} invalid")
