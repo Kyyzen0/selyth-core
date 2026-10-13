@@ -36,8 +36,10 @@ M6 compares arm A (agent + Dafny) with arm B (agent + Dafny + Selyth layer). `co
 - Plus 10 "null agent" runs and 10 controlled-sabotage runs against the evaluator.
 - No rerun after a failure, except for a documented infrastructure outage.
 - Limit per main run: 20 minutes. This ceiling measures technical behaviour, not an expense.
+- Besides the 20-minute wall-clock ceiling, every main run has an **enforceable ceiling on tokens, turns or an equivalent quota**, with its value frozen before any run is launched (`docs/evaluation/protocol.md`, open question 3). Recording consumption is not enough: without a ceiling, two 20-minute runs can receive very different model compute under varying throughput or throttling. Runs are scheduled so that a run does not start on an account whose quota is already depleted by earlier runs; if that cannot be guaranteed, the run waits.
 - **Marginal monetary budget: €0**, in line with the project's zero-marginal-cost principle (`MANIFESTO.md`, principles 8 and 11). M6 uses only subscriptions and hardware already owned, free local tools and open-source components.
-- If usage limits make the 60 main runs plus the 20 control runs impossible in one go, the study is spread over time or reduced. It is never accelerated by buying API access, credits or a cloud service.
+- If usage limits make the 60 main runs plus the 20 control runs impossible in one go, the study is **spread over time until all runs are completed**. It is never accelerated by buying API access, credits or a cloud service.
+- A reduction of the run set is allowed only under a rule written and frozen before any output is observed, which keeps the arms balanced (a task is run for both arms with the same number of repetitions, or not at all), fixes the minimum sample that still supports the acceptance criteria, and selects tasks by a pre-set order or seed, never by observed outcomes or run order. Without such a frozen rule, no reduction is made and the study waits.
 - **No paid M6 run has been launched and no money has been spent.** This is stated as a fact at the date of this ADR, not as a forecast.
 
 ### 4. Measuring human review
