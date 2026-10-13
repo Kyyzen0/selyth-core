@@ -4,6 +4,7 @@
 #   make test                     run every check: Python suites, Dafny backend, TypeScript port
 #   make test-python              Python suites only (no Node needed)
 #   make test-dafny               Dafny backend against a real Dafny 4.11.0 (SELYTH_DAFNY=<path> if not at ~/.local/opt/dafny/dafny)
+#   make test-eval                evaluation harness (M6) on its scripted corpus: needs Dafny and Node, about five minutes
 #   make test-ts                  TypeScript port only (needs Node >= 24; NODE_BIN=<dir> if not on PATH)
 #   make test PYTHON=python3.12   use another interpreter (>= 3.9) for the venv
 #   make clean                    delete the venv
@@ -14,9 +15,9 @@ VPY    := $(VENV)/bin/python
 NODE_BIN ?=
 export PATH := $(if $(NODE_BIN),$(NODE_BIN):)$(PATH)
 
-.PHONY: test test-python test-dafny test-ts ledger-workspace venv clean
+.PHONY: test test-python test-dafny test-ts test-eval ledger-workspace venv clean
 
-test: test-python test-dafny test-ts
+test: test-python test-dafny test-ts test-eval
 
 test-python: venv
 	$(VPY) tools/test-validation.py
@@ -61,6 +62,11 @@ ledger-workspace: venv
 test-ts: venv
 	@command -v node >/dev/null || { echo "Node >= 24 not found: install it or pass NODE_BIN=<dir with node>"; exit 1; }
 	cd ts && npm ci --ignore-scripts --no-audit --no-fund && npm test
+
+# The evaluation harness runs the corpus through Dafny and the Node oracle.
+test-eval: venv
+	@command -v node >/dev/null || { echo "Node >= 24 not found: install it or pass NODE_BIN=<dir with node>"; exit 1; }
+	$(VPY) tools/test-evaluate.py
 
 clean:
 	rm -rf $(VENV) ts/node_modules
