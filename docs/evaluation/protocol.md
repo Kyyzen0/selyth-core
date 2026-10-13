@@ -80,15 +80,21 @@ Reading it:
 - **The false-rejection column is the cost.** `C08` (a correct `Math.trunc`) is refused because the translator reads a small subset; that is a cost of the translation, paid by every arm. The first run also exposed a translator fault the unit tests had missed (`-amount + balance` failed to verify under Dafny's `nat` typing), now fixed: the corpus is already doing its job.
 - Nothing here says how often a real agent produces such submissions. That is the experiment.
 
-## Decisions only the project owner can make
+## Launch parameters: decided, with prerequisites before launch
 
-The harness runs whatever submissions it is given. These choices decide whether the result means anything:
+The harness runs whatever submissions it is given. The choices that decide whether the result means anything are **no longer open**: they are frozen in [`ADR-004-m6-launch-decisions.md`](../decisions/ADR-004-m6-launch-decisions.md).
 
-1. **The agent and its model.** Which coding agent, which model, what instructions. The same for both arms; whether the arm A agent is *shown* the obligations (A1) or must write its own specification (A0) is the main design question.
-2. **The tasks.** The ledger is a small, purpose-written module: a real task set needs code the project did not write, with obligations written by someone who is not the harness author, and enough tasks that a rate means something (the corpus has 23 scripted submissions and 13 that break an obligation: it can show an effect exists, not estimate its size).
-3. **Repetitions and budget.** Agents are stochastic: how many runs per task and per arm, token or quota and wall-clock ceiling per run. There is no monetary spend: the marginal budget is €0 by design (`core-v0.1.md`), which constrains the agent as well.
-4. **Human review time.** The primary metric ("review-minutes per accepted change") needs people reading changes. Who, how many, and how the minutes are recorded.
-5. **Isolation.** Where the lock, the oracle and the harness live so the agent cannot read or write them.
+- This protocol remains the reference for the **harness and the measurements**.
+- ADR-004 is the reference for the **operational parameters**: agent and model, comparison arms, repetitions, reduction rules, human review and isolation.
+- The task corpus is still to be produced by an independent curator, but its constraints and governance are already decided in the ADR.
+
+What remains are concrete prerequisites before launch, not open choices:
+
+1. **The agent and its model.** Decided: Claude Code with `claude-sonnet-4-6`, the same for both arms. The ADR's arm A is this protocol's A1 and its arm B is B; the ADR's "A0" (the agent writes its own specification) is a different thing from this protocol's A0 (Dafny alone) and is excluded from M6.
+2. **The tasks.** Constraints decided (10 tasks, at least 20 obligations from at least 3 external permissively licensed projects, 6 ordinary and 4 adversarial, frozen by an independent curator, hashed manifest). *To do:* produce the corpus. The ledger is a purpose-written module and the scripted corpus (23 submissions, 13 that break an obligation) can show that an effect exists, not estimate its size.
+3. **Repetitions and resource limits.** Decided: 3 fresh runs per task and arm, 10 null-agent runs, 10 sabotage runs, no rerun after failure, 20 minutes per run, no monetary spend (marginal budget €0 by design, `core-v0.1.md`). *To do before launch:* freeze the value of the per-run token or quota ceiling, and the balanced reduction rule if one is ever needed.
+4. **Human review time.** Decided: external reviewer, structured verdict, automatic timing, 20% second review, false positives and negatives set by the hidden oracle. *To do before launch:* freeze the deterministic rule that selects which cases go to review, identical for both arms.
+5. **Isolation.** Decided: disposable agent directory, patch-only submission, lock, manifest, oracle and hidden tests in a separate private evaluation repository, separate runner for any claim that the agent "cannot" touch them. *To do:* create that repository and runner.
 
 ## Stopping conditions (unchanged, restated)
 
