@@ -28,6 +28,10 @@ If any check fails the result is `rejected` with one violation per problem, no o
 | `INTEGRITY-POLICY-IDENTITY` | `policy_id`, `policy_version`, `approved_by` or `approval` differ between report and policy |
 | `INTEGRITY-TRUST-INCOHERENT` | the report trusts the policy approval while the policy's `approval` is `unverified` |
 | `INTEGRITY-COVERAGE` | the report does not cover the Obligation Set exactly ([coverage rules](obligation-set-canonicalization.md)) |
+| `INTEGRITY-POLICY-NOT-APPROVED` | a lock is given and the supplied policy's digest is not the one it approved |
+| `INTEGRITY-OBLIGATION-SET-NOT-FROZEN` | a lock is given and the Obligation Set's digest is not the one it froze |
+
+**The lock** ([`lock-schema.json`](lock-schema.json)) is an optional fourth input: the digests of the policy and of the Obligation Set as a human approved them. Without it, the engine can only check that the report is coherent with the policy it names, which an agent that edits the policy can satisfy by regenerating the report. With it, any semantic change to either document is refused by digest mismatch. See [`negative-scenarios.md`](negative-scenarios.md); the lock's own integrity is procedural.
 
 **Policy digest:** `sha256:` + SHA-256 of the policy as JSON with strings in Unicode NFC, object keys sorted by code point, no whitespace, minimal escapes, UTF-8. Arrays keep their order, because rule order is meaning; an integral float is the integer. Reformatting or reordering keys keeps the digest; reordering rules changes it.
 

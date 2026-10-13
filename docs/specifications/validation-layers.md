@@ -33,6 +33,7 @@ JSON Schema **cannot** state:
 | A local subprocess is not outside the agent boundary | structural | `producer.allOf[0]` | `report/local-subprocess-claiming-isolation` |
 | `trust` cannot claim a verifier outside the boundary that the producer denies | structural | root `allOf[1]` | `report/outside-boundary-claim-with-local-producer` |
 | `remote-attested` requires a remote-service producer outside the boundary | structural | root `allOf[2]` | `report/remote-trust-with-local-producer`, `report/remote-trust-with-inside-boundary-producer` |
+| The policy and the Obligation Set are the ones a human approved (the lock) | **semantic** | policy engine, `INTEGRITY-POLICY-NOT-APPROVED`, `INTEGRITY-OBLIGATION-SET-NOT-FROZEN` | `tools/test-scenarios.py` |
 | `policy.policy_digest` equals `decision.policy_digest` | **semantic** | policy engine, `INTEGRITY-POLICY-DIGEST-MISMATCH` | `report/policy-digest-mismatch`, `tools/test-policy-engine.py` |
 | Every obligation has an applicable rule, otherwise a safe default decides | **semantic** | policy engine, `DEFAULT-NO-RULE-DECIDES` (rejected) | `policy/no-rule-applies-to-obligation`, `tools/test-policy-engine.py` |
 | The policy digest is the digest of the canonical policy content | **semantic** | policy engine, `INTEGRITY-POLICY-NOT-PINNED` | `tools/test-policy-engine.py` |

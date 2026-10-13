@@ -72,6 +72,8 @@ docs/
   specifications/
     report-schema.json                Verification report schema
     policy-schema.json                Acceptance policy schema
+    negative-scenarios.md             The M5 scenarios: incorrect code, weakened obligations and policy, and the lock
+    lock-schema.json                  The lock: human-approved digests of the policy and the Obligation Set
     dafny-backend.md                  Dafny backend: workspace markers, outcomes, trust escapes, the report
     verification-ir.md                Verification IR (L2), reproducibility key, lowering rules
     verification-ir-schema.json       Verification IR schema
@@ -93,6 +95,7 @@ requirements.in / requirements.txt    Direct dependencies / hash-locked environm
 tools/
   validate.py                         Independent Draft 2020-12 validator (jsonschema)
 ts/                                   TypeScript port of the adapter (src/), tests against the Python adapter (test/)
+  test-scenarios.py                   M5 negative scenarios, end to end with Dafny
   dafny_backend.py                    Dafny backend: IR + proof workspace -> report (decided by the engine)
   test-dafny-backend.py               Backend tests against a real Dafny
   ts_adapter.py                       TypeScript adapter: Obligation Set -> Verification IR (deterministic)
@@ -123,6 +126,7 @@ Some rules cannot be expressed in JSON Schema at all, such as a policy digest th
 5. **`tools/test-ts-adapter.py`**, the adapter suite: regenerating the Verification IR gives a byte-identical file across runs, processes, hash seeds, time zones, locales and working directories, and for any formatting or ordering of the Obligation Set; the reproducibility key changes with each of its inputs (Obligation Set digest, adapter name and version, verification tool name and version, IR version); no obligation is ever dropped.
 6. **`ts/` (`npm test`)**, the TypeScript port of the adapter: typechecked (`tsc --strict`), and compared **byte for byte** with the Python adapter on the demonstration set and on a rich set (Unicode normalisation, code point ordering, many assumptions, unsupported obligations, a 5,000-digit literal), plus the same vectors and golden as the Python suite.
 7. **`tools/test-dafny-backend.py`**, the Dafny backend suite, against a **real Dafny**: known-correct obligations are `kernel-proven` and the report validates; a false obligation is `failed` and named by the policy engine; an `assume {:axiom}` that Dafny itself would accept cannot launder a false obligation; resource exhaustion is a `timeout`; a missing marker or an unlowerable obligation is `not-run`; an IR for another Dafny version is refused.
+8. **`tools/test-scenarios.py`**, the negative scenarios of milestone M5, end to end with a real Dafny: an off-by-one that passes plain Dafny is `rejected` naming `OBL-0008`; weakening or deleting the obligation it violates, or editing the policy, is `rejected` by digest mismatch against the human-approved lock ([`negative-scenarios.md`](docs/specifications/negative-scenarios.md)).
 
 Without `make`:
 

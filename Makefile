@@ -43,6 +43,9 @@ $(VENV)/.installed: requirements.txt
 # Runs real Dafny: the backend is only as tested as the prover behind it.
 test-dafny: venv
 	$(VPY) tools/test-dafny-backend.py
+	@echo
+	@echo "== Negative scenarios (M5), end to end with Dafny"
+	$(VPY) tools/test-scenarios.py
 
 # The TypeScript port is checked against the Python adapter, so it needs the venv too.
 test-ts: venv
