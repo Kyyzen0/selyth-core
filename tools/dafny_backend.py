@@ -37,7 +37,10 @@ Z3_VERSION = "4.12.1"  # pinned by the backend and passed with --solver-path
 DEFAULT_RESOURCE_LIMIT = 1_000_000
 DEFAULT_TIME_LIMIT = 60
 
-MARKER = re.compile(r"^([ \t]*)// selyth:obligation[ \t]+(\S+)[ \t]*$")
+# `// selyth:obligation OBL-1 OBL-2 ...` marks where the clauses of one contract go. Several
+# identifiers may share a marker: the postconditions of a method are verified under the
+# preconditions written at the same place (see hypotheses_for).
+MARKER = re.compile(r"^([ \t]*)// selyth:obligation((?:[ \t]+\S+)+)[ \t]*$")
 # Constructs that make a Dafny proof depend on something Dafny did not check, or that the
 # report does not bind. `expect` is verified as an assumption (it is checked only at run
 # time); `include` pulls in files that are neither verified, scanned nor in the report digest.
@@ -90,21 +93,77 @@ def trust_escapes(source):
     return found
 
 
+def marker_ids(line):
+    """(indentation, [obligation ids]) for a marker line, else None."""
+    m = MARKER.match(line)
+    return (m.group(1), m.group(2).split()) if m else None
+
+
 def marker_count(source, obligation_id):
     return sum(1 for line in source.split("\n")
-               if (m := MARKER.match(line)) and m.group(2) == obligation_id)
+               if (found := marker_ids(line)) and obligation_id in found[1])
 
 
-def instantiate(source, obligation_id, clause):
-    """Put `clause` where the obligation's marker is; blank the other markers.
+_DECLARATION = re.compile(r"\b(?:method|function|lemma|predicate|constructor)\b(?:\s*\{[^}]*\})*\s+([A-Za-z_][A-Za-z0-9_']*)")
 
-    Line numbers are preserved, so Dafny's diagnostics point into the workspace.
+
+def enclosing_declaration(source, obligation_id):
+    """Name of the method, function or lemma whose contract holds the obligation's marker."""
+    lines = source.split("\n")
+    for number, line in enumerate(lines):
+        found = marker_ids(line)
+        if found and obligation_id in found[1]:
+            names = _DECLARATION.findall(strip_comments("\n".join(lines[:number])))
+            return names[-1] if names else None
+    return None
+
+
+def call_sites(source, name):
+    """How many times `name(` is used in the workspace other than at its own declaration.
+
+    Lexical, on comment-free text: it counts a use that is a call. It cannot see a call made
+    through a name Dafny resolves differently, which is why a precondition with no call
+    site found is reported as unknown rather than proven.
+    """
+    text, count = strip_comments(source), 0
+    for m in re.finditer(r"\b" + re.escape(name) + r"\s*\(", text):
+        before = text[:m.start()]
+        if not re.search(r"\b(?:method|function|lemma|predicate|constructor)\b(?:\s*\{[^}]*\})*\s*$", before):
+            count += 1
+    return count
+
+
+def hypotheses_for(source, unit, requires_by_id):
+    """The preconditions an obligation is verified under: [(id, clause)].
+
+    A postcondition, invariant or decreases clause is verified together with the `requires`
+    clauses of the other obligations at its own marker, in marker order: a contract is
+    proved under its preconditions, and each precondition is itself verified at the call
+    sites in the workspace. A `requires` obligation is verified alone, so that those call
+    sites are the only thing that can make it pass. Nothing else is ever assumed.
+    """
+    if unit["clause"]["keyword"] == "requires":
+        return []
+    for line in source.split("\n"):
+        found = marker_ids(line)
+        if found and unit["obligation_id"] in found[1]:
+            return [(i, requires_by_id[i]) for i in found[1]
+                    if i != unit["obligation_id"] and i in requires_by_id]
+    return []
+
+
+def instantiate(source, obligation_id, clause, hypotheses=()):
+    """Put `clause` (after any `hypotheses` clauses) where the obligation's marker is; blank
+    the other markers.
+
+    The clauses share the marker's line, so line numbers are preserved and Dafny's
+    diagnostics point into the workspace.
     """
     lines = []
     for line in source.split("\n"):
-        m = MARKER.match(line)
-        if m:
-            lines.append(f"{m.group(1)}{clause}" if m.group(2) == obligation_id else "")
+        found = marker_ids(line)
+        if found:
+            lines.append(f"{found[0]}{' '.join([*hypotheses, clause])}" if obligation_id in found[1] else "")
         else:
             lines.append(line)
     return "\n".join(lines)
@@ -157,14 +216,23 @@ def parse_dafny(text, returncode):
     return "proven", []
 
 
-def run_obligation(dafny, solver, workspace_name, source, unit, resource_limit, time_limit):
+def run_obligation(dafny, solver, workspace_name, source, unit, resource_limit, time_limit,
+                   requires_by_id=None):
     """Verify one obligation; return (outcome, diagnostics, cost)."""
     oid, clause = unit["obligation_id"], unit["clause"]
     cost = {"timed_out": False}
     count = marker_count(source, oid)
     if count != 1:
         return "not-run", [f"the workspace has {count} markers for {oid}; exactly one is needed"], cost
-    text = instantiate(source, oid, f"{clause['keyword']} {clause['expression']}")
+    if clause["keyword"] == "requires":
+        # Attached to a method nobody calls, a precondition makes the body easier and checks
+        # nothing: the proof would be vacuous.
+        name = enclosing_declaration(source, oid)
+        if name is None or call_sites(source, name) == 0:
+            return "unknown", [f"{oid} is a precondition, but the workspace has no call site of "
+                               f"{name or 'its method'}: verifying it would prove nothing"], cost
+    hypotheses = [c for _, c in hypotheses_for(source, unit, requires_by_id or {})]
+    text = instantiate(source, oid, f"{clause['keyword']} {clause['expression']}", hypotheses)
     with tempfile.TemporaryDirectory(prefix="selyth-dafny-") as tmp:
         path = Path(tmp) / workspace_name
         path.write_text(text, encoding="utf-8")
@@ -209,11 +277,16 @@ def obligation_results(ir, source, workspace_name, dafny, solver, version, resou
                 "affected_components": components}
 
     escapes = trust_escapes(source)
+    requires_by_id = {u["obligation_id"]: f"requires {u['clause']['expression']}" for u in ir["units"]
+                      if u["clause"]["keyword"] == "requires"}
     for unit in ir["units"]:
         oid, clause = unit["obligation_id"], unit["clause"]
+        under = hypotheses_for(source, unit, requires_by_id)
         scope = (f"Dafny {version} verification of `{clause['keyword']} {clause['expression']}` "
-                 f"with the clauses written by hand in {workspace_name}, one obligation at a time "
-                 f"(resource limit {resource_limit}, time limit {time_limit}s, z3 {Z3_VERSION})")
+                 f"with the clauses written by hand in {workspace_name}, one obligation at a time"
+                 + (f", under the preconditions {', '.join(i for i, _ in under)}" if under else "")
+                 + f" (resource limit {resource_limit}, time limit {time_limit}s, z3 {Z3_VERSION})")
+        premises = unit["context"]["assumptions"] + [f"{i} holds at every call site: {c}" for i, c in under]
         if escapes:
             outcome, cost = "failed", {"timed_out": False}
             diagnostics = [f"forbidden construct {name} at line {line} of {workspace_name}: the proof "
@@ -221,9 +294,9 @@ def obligation_results(ir, source, workspace_name, dafny, solver, version, resou
                            for line, name in escapes]
         else:
             outcome, diagnostics, cost = run_obligation(dafny, solver, workspace_name, source, unit,
-                                                        resource_limit, time_limit)
+                                                        resource_limit, time_limit, requires_by_id)
         entry = {**base(unit, unit["context"]["affected_components"]), "outcome": outcome,
-                 "evidence": evidence(outcome, tool, scope, unit["context"]["assumptions"], cost)}
+                 "evidence": evidence(outcome, tool, scope, premises, cost)}
         if diagnostics:
             entry["diagnostics"] = diagnostics
         results.append(entry)

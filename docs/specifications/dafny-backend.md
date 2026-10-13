@@ -10,7 +10,7 @@ proof workspace (.dfy) -------------+
 
 ## The proof workspace
 
-A Dafny file written by a human (or proposed by an agent), containing the program under verification or a model of it. Translating TypeScript to Dafny is not part of this milestone, so the workspace is what binds an obligation to code. The binding is a **marker comment** placed where Dafny expects contract clauses (after a method signature, or between a loop header and its body):
+A Dafny file written by a human (or proposed by an agent), containing the program under verification or a model of it. The ledger in [`examples/ledger/`](examples/ledger/README.md) is a full example, with twenty obligations and a measured account of what the approach costs. Translating TypeScript to Dafny is not part of this milestone, so the workspace is what binds an obligation to code. The binding is a **marker comment** placed where Dafny expects contract clauses (after a method signature, or between a loop header and its body):
 
 ```dafny
 method Enqueue(l: Queue) returns (result: Queue)
@@ -29,6 +29,12 @@ For each unit of the IR the backend writes a copy of the workspace in which that
 
 The consequence is deliberate and conservative: an obligation never benefits from another obligation's clause, so a clause cannot be proved with another one as a hidden hypothesis. It may fail where the pair would verify.
 
+### Preconditions and their call sites
+
+Several identifiers may share a marker (`// selyth:obligation LED-01 LED-02 LED-03`): they belong to one contract. A `requires` obligation is verified **alone**: Dafny checks the method body against it and, above all, every call site in the workspace, so the callers are what prove it. The other obligations at the marker (postconditions, loop invariants, `decreases`) are verified with the **`requires` clauses of their own marker as hypotheses**, because a contract holds under its preconditions; the report lists those preconditions among the evidence's assumptions and in its scope. Nothing else is ever assumed: another obligation's postcondition is not available to a caller.
+
+A precondition on a method that nothing in the workspace calls would verify vacuously (attached to a method, it can only make the body easier). The backend therefore looks for call sites, lexically, and reports the obligation as `unknown` when it finds none.
+
 ## Outcomes
 
 | Dafny says | Outcome | Evidence soundness |
@@ -39,6 +45,7 @@ The consequence is deliberate and conservative: an obligation never benefits fro
 | 0 verified, 0 errors (the clause is attached to nothing Dafny checks) | `unknown` | `none` |
 | no summary (parse or resolution error) | `failed`, with the error lines | `none` |
 | the workspace has no marker, or more than one, for the obligation | `not-run` | `none` |
+| a `requires` obligation whose method has no call site in the workspace | `unknown` | `none` |
 | the adapter put the obligation in `unsupported` | `not-run`, with the adapter's reason | `none` |
 
 The evidence kind is always `kernel-proven`: it names the kind of check, and the soundness says whether it reached a proof. `proven` is the only outcome with a soundness claim (the report schema enforces this).

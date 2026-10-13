@@ -108,6 +108,42 @@ def check_units():
     check(backend.marker_count(source, "OBL-0007") == 1 and backend.marker_count(source, "OBL-9999") == 0,
           "markers are counted per obligation")
 
+    heading("Several obligations at one marker: postconditions are verified under the preconditions")
+    shared = "method M()\n  // selyth:obligation A B C\n{ }"
+    unit = lambda oid, kw: {"obligation_id": oid, "clause": {"keyword": kw, "expression": "e"}}
+    req = {"A": "requires a", "C": "requires c"}
+    check(backend.marker_count(shared, "B") == 1 and backend.marker_count(shared, "D") == 0,
+          "an identifier is found among those sharing a marker")
+    check(backend.hypotheses_for(shared, unit("B", "ensures"), req) == [("A", "requires a"), ("C", "requires c")],
+          "a postcondition takes the other obligations' requires clauses, in marker order, as hypotheses")
+    check(backend.hypotheses_for(shared, unit("A", "requires"), req) == [],
+          "a precondition is verified alone: only its call sites can make it pass")
+    check(backend.hypotheses_for(shared, unit("B", "ensures"), {}) == [] and backend.hypotheses_for(shared, unit("Z", "ensures"), req) == [],
+          "no preconditions, or no marker, means no hypotheses (nothing else is ever assumed)")
+    inst = backend.instantiate(shared, "B", "ensures b", ["requires a", "requires c"])
+    check(inst.split("\n")[1] == "  requires a requires c ensures b" and inst.count("\n") == shared.count("\n"),
+          "the clauses share the marker's line, so line numbers are preserved")
+    check(backend.instantiate(shared, "A", "requires a").split("\n")[1] == "  requires a",
+          "a precondition is instantiated alone")
+
+    heading("Call sites of a precondition")
+    for text, want in (
+            ("method M(x: int)\n  // selyth:obligation A\n{ }", "M"),
+            ("lemma L() { }\nmethod {:timeLimit 5} Slow(x: int)\n  // selyth:obligation A\n{ }", "Slow"),
+            ("function F(x: int): int\n  // selyth:obligation A\n{ x }", "F"),
+            ("// method Hidden()\nmethod Real()\n  // selyth:obligation A\n{ }", "Real"),
+            ("datatype T = T(x: int)\n// selyth:obligation A", None)):
+        check(backend.enclosing_declaration(text, "A") == want, f"enclosing declaration of a marker: {want}",
+              f"    got {backend.enclosing_declaration(text, 'A')}")
+    check(backend.enclosing_declaration("method M()\n// selyth:obligation A", "B") is None, "no marker, no declaration")
+    code = "method M(x: int)\n{ }\nmethod C() { M(1); var y := M (2); }\n// M(3) in a comment\n"
+    check(backend.call_sites(code, "M") == 2, "call sites: the declaration and comments are not calls, spacing before ( is fine",
+          f"    got {backend.call_sites(code, 'M')}")
+    check(backend.call_sites("method M()\n{ }", "M") == 0 and backend.call_sites("method Mx()\n{ Mx(); }", "M") == 0,
+          "an uncalled method has none; a longer name is not a call of a shorter one")
+    check(backend.call_sites("function {:opaque} F(): int { 1 }\nmethod C() { var z := F(); }", "F") == 1,
+          "a declaration with an attribute is still a declaration")
+
     heading("Trust-escape scan")
     for text, expected in (
         ("method M() { assume true; }", [("assume")]),
