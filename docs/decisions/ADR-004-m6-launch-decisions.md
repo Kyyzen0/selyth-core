@@ -7,14 +7,14 @@
 
 ## Context
 
-M6 compares arm A (agent + Dafny) with arm B (agent + Dafny + Selyth layer). `core-v0.1.md` marked it "not started: needs decisions on the agent, the tasks and the budget". This ADR fixes those decisions before launch, so that they cannot be adjusted after seeing results. The general protocol (frozen obligations, verifier outside the agent's environment, null-agent floor, adversarially tested evaluator) remains that of `validation-plan.md`.
+M6 compares arm A (agent + Dafny) with arm B (agent + Dafny + Selyth layer). `core-v0.1.md` marked it "not started: needs decisions on the agent, the tasks and the budget" (the budget turns out to be a question of usage limits, not of money: see section 3). This ADR fixes those decisions before launch, so that they cannot be adjusted after seeing results. The general protocol (frozen obligations, verifier outside the agent's environment, null-agent floor, adversarially tested evaluator) remains that of `validation-plan.md`.
 
 ## Decision
 
 ### 1. Agent, model and information provided
 
 - Agent: Claude Code. Model: `claude-sonnet-4-6`, frozen for all trials.
-- Recorded for every run: Claude Code version, exact model identifier, date, parameters, duration, tokens and cost.
+- Recorded for every run: Claude Code version, exact model identifier, date, parameters, duration, tokens or quota consumed when available, CPU, memory and commands executed. These are resource measurements; they are never converted into a monetary cost.
 - Condition **A1**: both arms receive the same code, the same frozen read-only obligations and the same Dafny access.
   - Arm A: agent + obligations + Dafny, without the Selyth engine.
   - Arm B: agent + same obligations + same Dafny + Selyth layer (evidence report and policy engine).
@@ -30,13 +30,15 @@ M6 compares arm A (agent + Dafny) with arm B (agent + Dafny + Selyth layer). `co
 - Obligations, oracle and reference solution are written and frozen by an independent human curator. Neither the Selyth project, nor the agent, nor its operator modifies them.
 - Each task ships with a hashed manifest: starting code, obligations, allowed modifiable files and expected oracle.
 
-### 3. Repetitions and budget
+### 3. Repetitions and resource limits
 
 - 3 fresh executions per task and per arm: 10 × 2 × 3 = **60 main runs**.
 - Plus 10 "null agent" runs and 10 controlled-sabotage runs against the evaluator.
 - No rerun after a failure, except for a documented infrastructure outage.
-- Limit per main run: 20 minutes and €4.
-- Maximum study budget: **€350**, of which €240 for the 60 main runs (60 × €4) and €110 for controls and technical contingencies. Stop immediately if the budget is reached.
+- Limit per main run: 20 minutes. This ceiling measures technical behaviour, not an expense.
+- **Marginal monetary budget: €0**, in line with the project's zero-marginal-cost principle (`MANIFESTO.md`, principles 8 and 11). M6 uses only subscriptions and hardware already owned, free local tools and open-source components.
+- If usage limits make the 60 main runs plus the 20 control runs impossible in one go, the study is spread over time or reduced. It is never accelerated by buying API access, credits or a cloud service.
+- **No paid M6 run has been launched and no money has been spent.** This is stated as a fact at the date of this ADR, not as a forecast.
 
 ### 4. Measuring human review
 
@@ -59,12 +61,12 @@ M6 compares arm A (agent + Dafny) with arm B (agent + Dafny + Selyth layer). `co
 
 - With 3 repetitions and 10 tasks, the study detects large differences between arms, not small ones: results will be reported with raw counts, without claiming fine statistical significance.
 - Without reruns, an agent failure counts as a failure. This is deliberate: we measure behaviour, not the best of several attempts.
-- The budget is a hard cap. The control runs (null agent, sabotage) are mandatory; if they exhaust their €110 envelope, we stop rather than eat into the €240 for the main runs.
+- The usage limits of the subscriptions already held are the real constraint. The control runs (null agent, sabotage) are mandatory; if the limits do not allow everything, the main runs are spread over time or reduced, and the controls are not dropped to make room.
 - As long as the evaluator and the agent share a machine, any isolation claim must be worded as procedural.
 - The task set does not exist yet in this repository: by construction it lives in the private evaluation repository.
 
 ## Alternatives considered
 
 - **A0** (specification written by the agent): conflates two questions; deferred to a later experiment.
-- **Reruns after failure**: artificially inflates the success rate and distorts the cost comparison.
+- **Reruns after failure**: artificially inflates the success rate and distorts the comparison of resource use.
 - **Reviewer given the oracle**: would make the reviewer measure what the oracle already knows.
