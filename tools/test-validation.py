@@ -171,21 +171,21 @@ ADVERSARIAL_STRUCTURAL = [
      ("$.producer.outside_agent_boundary", "const")),
 ]
 
-# (name, [(schema, instance), ...], why, what the policy engine must do)
+# (name, [(schema, instance), ...], why, rule_id the policy engine rejects it with)
 ADVERSARIAL_SEMANTIC = [
     ("report/policy-digest-mismatch",
      [(REPORT, mutate(lambda c: c["decision"].update({"policy_digest": "sha256:" + "d" * 64}),
                       good_report))],
      "decision.policy_digest differs from policy.policy_digest: JSON Schema cannot compare "
      "two values of the same instance",
-     "refuse to decide when the two digests differ"),
+     "INTEGRITY-POLICY-DIGEST-MISMATCH"),
     ("policy/no-rule-applies-to-obligation",
      [(POLICY, mutate(only_core_rule, good_policy)),
       (REPORT, mutate(lambda c: c["obligations"][0].update(
           {"kind": "termination", "statement": "decreases queue.length"}), good_report))],
      "the policy has no rule for a `termination` obligation, yet the report claims acceptance: "
      "matching a rule to an obligation needs both documents",
-     "never accept an obligation no rule covers; fall back to a safe default decision"),
+     "DEFAULT-NO-RULE-DECIDES"),
 ]
 
 FAILURES = []
@@ -282,8 +282,9 @@ def check_adversarial(schemas):
     heading("Adversarial scenarios (docs/roadmap/next-tasks-for-claude.md, task 1)")
     for name, schema_path, instance, _why, reason in ADVERSARIAL_STRUCTURAL:
         run_case(f"structural  {name}", schemas[schema_path], instance, False, reason)
-    gaps = []
-    for name, documents, _why, engine_duty in ADVERSARIAL_SEMANTIC:
+    engine_text = ((ROOT / "tools" / "policy_engine.py").read_text(encoding="utf-8")
+                   + (ROOT / "docs" / "specifications" / "policy-engine.md").read_text(encoding="utf-8"))
+    for name, documents, _why, engine_rule in ADVERSARIAL_SEMANTIC:
         problems = [p for schema_path, instance in documents
                     for p in validate.validate(instance, schemas[schema_path])]
         if problems:
@@ -291,10 +292,11 @@ def check_adversarial(schemas):
                   "    Reclassify it as structural and give it the rejection reason:\n"
                   + "\n".join(f"    {p.path}: {p.message} ({p.keyword})" for p in problems))
         else:
-            print(f"[gap ] semantic    {name:46s} valid for JSON Schema; engine must "
-                  f"{engine_duty}")
-            gaps.append(name)
-    return gaps
+            # The actual rejection is exercised by tools/test-policy-engine.py, which needs
+            # the third document (the Obligation Set) this suite does not build.
+            check(engine_rule in engine_text,
+                  f"semantic    {name}: valid for JSON Schema; the policy engine rejects it "
+                  f"as {engine_rule}", f"    {engine_rule} is not defined by the engine")
 
 
 def check_rule_coverage(schemas):
@@ -337,20 +339,16 @@ def check_rule_coverage(schemas):
 def main():
     version = importlib.metadata.version("jsonschema")
     print(f"Independent validator: jsonschema {version}, JSON Schema Draft 2020-12")
-    gaps = []
     schemas = check_schemas()
     check_validator_self_tests()
     if len(schemas) == 2:
         check_legacy(schemas)
         check_added(schemas)
-        gaps = check_adversarial(schemas)
+        check_adversarial(schemas)
         check_rule_coverage(schemas)
 
     total_failed = len(FAILURES)
     print(f"\n{'FAILED' if total_failed else 'all checks passed'}: {total_failed} failure(s)")
-    if gaps:
-        print(f"{len(gaps)} semantic scenario(s) cannot be rejected by JSON Schema and stay open "
-              "until the policy engine exists (roadmap task 3).")
     for label, detail in FAILURES:
         print(f"\n--- {label}\n{detail}")
     return 1 if total_failed else 0

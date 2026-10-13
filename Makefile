@@ -16,6 +16,9 @@ test: venv
 	@echo "== Obligation Set: schema, canonical digest, report coverage"
 	$(VPY) tools/test-obligation-set.py
 	@echo
+	@echo "== Policy engine: decisions, safety, determinism, replay"
+	$(VPY) tools/test-policy-engine.py
+	@echo
 	@echo "== Legacy suite (tools/test-schemas.py, tools/minischema.py), kept as a secondary check"
 	$(VPY) tools/test-schemas.py
 
