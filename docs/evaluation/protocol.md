@@ -86,7 +86,7 @@ The harness runs whatever submissions it is given. These choices decide whether 
 
 1. **The agent and its model.** Which coding agent, which model, what instructions. The same for both arms; whether the arm A agent is *shown* the obligations (A1) or must write its own specification (A0) is the main design question.
 2. **The tasks.** The ledger is a small, purpose-written module: a real task set needs code the project did not write, with obligations written by someone who is not the harness author, and enough tasks that a rate means something (the corpus has 23 scripted submissions and 13 that break an obligation: it can show an effect exists, not estimate its size).
-3. **Repetitions and budget.** Agents are stochastic: how many runs per task and per arm, token and wall-clock ceiling per run, total spend. The compute budget is €0 by design (`core-v0.1.md`), which constrains the agent as well.
+3. **Repetitions and budget.** Agents are stochastic: how many runs per task and per arm, token or quota and wall-clock ceiling per run. There is no monetary spend: the marginal budget is €0 by design (`core-v0.1.md`), which constrains the agent as well.
 4. **Human review time.** The primary metric ("review-minutes per accepted change") needs people reading changes. Who, how many, and how the minutes are recorded.
 5. **Isolation.** Where the lock, the oracle and the harness live so the agent cannot read or write them.
 
