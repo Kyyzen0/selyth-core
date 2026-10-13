@@ -252,17 +252,21 @@ def load_lock(path):
     return lock
 
 
+def load_valid(path, name, schema_file):
+    """Read a JSON document and require it to be valid against its schema."""
+    instance = validate.load_json(path)
+    problems = validate.validate(instance, validate.load_schema(SPECS / schema_file))
+    if problems:
+        raise validate.SchemaError(f"{name} is not valid: " + "; ".join(
+            f"{p.path}: {p.message}" for p in problems))
+    return instance
+
+
 def evaluate_files(policy_path, report_path, set_path, lock_path=None):
     """Read and structurally validate the documents, then decide. Does the I/O."""
-    policy = validate.load_json(policy_path)
-    report = validate.load_json(report_path)
+    policy = load_valid(policy_path, "policy", "policy-schema.json")
+    report = load_valid(report_path, "report", "report-schema.json")
     document = oset.load_obligation_set(set_path)
-    for name, instance, schema_file in (("policy", policy, "policy-schema.json"),
-                                        ("report", report, "report-schema.json")):
-        problems = validate.validate(instance, validate.load_schema(SPECS / schema_file))
-        if problems:
-            raise validate.SchemaError(f"{name} is not valid: " + "; ".join(
-                f"{p.path}: {p.message}" for p in problems))
     return policy, report, document, load_lock(lock_path) if lock_path else None
 
 
@@ -289,8 +293,10 @@ def main(argv):
             print(policy_digest(validate.load_json(files[0])))
             return 0
         if command == "lock":
-            print(json.dumps(make_lock(validate.load_json(files[0]), oset.load_obligation_set(files[1]),
-                                       approved_by), indent=2, sort_keys=True))
+            # An approval artifact for a document that cannot be used would have to be redone.
+            print(json.dumps(make_lock(load_valid(files[0], "policy", "policy-schema.json"),
+                                       oset.load_obligation_set(files[1]), approved_by),
+                             indent=2, sort_keys=True))
             return 0
         policy, report, document, lock = evaluate_files(*files, lock_path)
     except (OSError, ValueError, oset.ObligationSetError, validate.SchemaError) as exc:

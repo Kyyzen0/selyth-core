@@ -600,6 +600,16 @@ def check_lock():
         check(cli("decide", pol, rep, doc, "--lock", write("bad.json", {"policy_digest": "x"})).returncode == 2,
               "CLI: an invalid lock exits 2")
         check(cli("lock", pol, doc).returncode == 2, "CLI: `lock` needs --approved-by")
+        broken = copy.deepcopy(policy)
+        del broken["title"]
+        run = cli("lock", write("broken-policy.json", broken), doc, "--approved-by", "project-owner")
+        check(run.returncode == 2 and "policy_digest" not in run.stdout and "not valid" in run.stdout + run.stderr,
+              "CLI: `lock` refuses a policy that violates policy-schema.json and prints no lock",
+              f"    exit {run.returncode}: {run.stdout!r} {run.stderr!r}")
+        invalid_set = copy.deepcopy(document)
+        invalid_set["obligations"] = []
+        check(cli("lock", pol, write("empty-set.json", invalid_set), "--approved-by", "project-owner").returncode == 2,
+              "CLI: `lock` refuses an invalid Obligation Set too")
 
 
 def replay_with_lock(policy, document, lock):
