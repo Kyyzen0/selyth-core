@@ -56,7 +56,7 @@ BACKEND = "4.11.0"
 # Pinned: if the adapter's output for the demonstration set changes, ADAPTER_VERSION must
 # change with it, and this value be updated in the same commit.
 GOLDEN = {"adapter_version": "0.1.0",
-          "sha256": "REPLACE-AFTER-IMPLEMENTATION"}
+          "sha256": "sha256:71af04fc40885eaa7f6c5971bfc51611f764f7f4092be50287761a62ec525ba9"}
 
 
 def lowered(document=None, backend=BACKEND):
@@ -110,6 +110,25 @@ def check_determinism():
             same = run_cli("lower", str(path), "--backend-version", BACKEND).stdout == first
         check(same, f"Obligation Set file formatted as {label}: same IR")
 
+    rich = osets.demo()
+    for i, o in enumerate(rich["obligations"]):
+        o["assumptions"] = [f"assumption {c} of {i}" for c in "fbdaec"]
+        o["affected_components"] = [f"{c}/mod{i}.ts" for c in "zyxwvu"]
+    rich["obligations"].append({**copy.deepcopy(rich["obligations"][0]), "obligation_id": "U-1",
+                                "kind": "permission", "statement": "ensures true"})
+    with tempfile.TemporaryDirectory(prefix="selyth-ir-") as tmp:
+        path = Path(tmp) / "rich.json"
+        path.write_text(json.dumps(rich), encoding="utf-8")
+        rich_outputs = {run_cli("lower", str(path), "--backend-version", BACKEND,
+                                env={**os.environ, "PYTHONHASHSEED": seed}).stdout
+                        for seed in ("0", "1", "2", "3", "77", "random")}
+    check(len(rich_outputs) == 1 and "assumption a of 0" in next(iter(rich_outputs)),
+          "a set with many assumptions, components and an unsupported obligation: identical bytes "
+          "under six hash seeds (no set or dict ordering leaks)", f"    {len(rich_outputs)} distinct outputs")
+    ctx = adapter.lower(rich, BACKEND)["units"][0]["context"]
+    check(ctx["assumptions"] == sorted(ctx["assumptions"]) and ctx["affected_components"]
+          == sorted(ctx["affected_components"]), "assumptions and components are emitted sorted")
+
     heading("The IR holds nothing volatile")
     host = socket.gethostname()
     leaks = [name for name, pattern in (
@@ -121,6 +140,8 @@ def check_determinism():
         if re.search(pattern, first)]
     check(not leaks, "no path, host name, date, time or uuid", f"    found {leaks}")
 
+    document = osets.demo()  # read before the patches: only lower() must stay pure
+
     def forbidden(*args, **kwargs):
         raise AssertionError("lower() touched the outside world")
     with mock.patch("builtins.open", forbidden), mock.patch.object(socket, "socket", forbidden), \
@@ -128,7 +149,7 @@ def check_determinism():
             mock.patch.object(random, "random", forbidden), mock.patch.object(os, "urandom", forbidden), \
             mock.patch.object(os, "stat", forbidden), mock.patch.object(Path, "read_text", forbidden):
         try:
-            check(lowered() == first, "lower() uses no file, socket, process, clock or randomness")
+            check(lowered(document) == first, "lower() uses no file, socket, process, clock or randomness")
         except AssertionError as exc:
             check(False, "lower() uses no file, socket, process, clock or randomness", f"    {exc}")
 
