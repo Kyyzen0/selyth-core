@@ -1,0 +1,34 @@
+{
+  "selyth_obligation_set_version": "0.1.0",
+  "set_id": "queue",
+  "specification_version": "1.0.0",
+  "title": "Bounded queue",
+  "obligations": [
+    {
+      "obligation_id": "OBL-0007",
+      "kind": "postcondition",
+      "statement": "ensures result.length > 0",
+      "required_evidence_kind": "kernel-proven",
+      "intent_statement": "The queue is never empty after a successful enqueue.",
+      "assumptions": ["list append is total for finite inputs"],
+      "affected_components": ["queue.ts"]
+    },
+    {
+      "obligation_id": "OBL-0008",
+      "kind": "invariant",
+      "statement": "invariant 0 <= size <= capacity",
+      "required_evidence_kind": "kernel-proven",
+      "intent_statement": "La file ne dépasse jamais sa capacité.",
+      "assumptions": [],
+      "affected_components": ["queue.ts"]
+    },
+    {
+      "obligation_id": "OBL-0009",
+      "kind": "termination",
+      "statement": "decreases queue.length",
+      "required_evidence_kind": "machine-checked-model",
+      "assumptions": ["the scheduler is fair"],
+      "affected_components": ["queue.ts", "drain.ts"]
+    }
+  ]
+}

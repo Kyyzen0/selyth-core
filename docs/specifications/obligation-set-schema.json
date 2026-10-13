@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://selyth.dev/schemas/obligation-set/v0.1.0",
+  "title": "Selyth Obligation Set",
+  "description": "The frozen, human-authored input of verification: the formal obligations a change must satisfy. A report names it by digest, a policy is evaluated against it, and a backend adapter lowers it. Its digest is computed over the canonical form defined in docs/specifications/obligation-set-canonicalization.md, so formatting, key order and the order of set-valued arrays never change it, while any change of meaning does. Every array in this document is a set: its order carries no meaning and is normalised away. Only strings, arrays and objects are allowed, so no number needs a canonical form.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "selyth_obligation_set_version",
+    "set_id",
+    "specification_version",
+    "obligations"
+  ],
+  "properties": {
+    "selyth_obligation_set_version": {
+      "description": "Version of this schema and of the canonicalization rules. A change to either is a change of this value, so a digest is never compared across rule sets.",
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "set_id": {
+      "description": "Stable identifier of this Obligation Set across its versions.",
+      "$ref": "#/$defs/identifier"
+    },
+    "specification_version": {
+      "description": "Version of the specification these obligations freeze. Reports echo it per obligation; it must match.",
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "title": {
+      "description": "Optional human label. Part of the digest like every other field: nothing in a frozen set is exempt from the freeze.",
+      "type": "string",
+      "minLength": 1
+    },
+    "obligations": {
+      "description": "A set, keyed by obligation_id. Uniqueness of the key cannot be stated in JSON Schema and is enforced by tools/obligation_set.py.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/obligation" }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "description": "ASCII, so that identifier comparison and ordering never depend on Unicode normalisation.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "obligation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "obligation_id",
+        "kind",
+        "statement",
+        "required_evidence_kind",
+        "assumptions",
+        "affected_components"
+      ],
+      "properties": {
+        "obligation_id": {
+          "description": "Stable identifier. Survives refactoring; referenced by reports and policies. Never reused for a different claim.",
+          "$ref": "#/$defs/identifier"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "precondition",
+            "postcondition",
+            "invariant",
+            "termination",
+            "permission",
+            "acceptance-criterion",
+            "resource-bound"
+          ]
+        },
+        "statement": {
+          "description": "The formal claim, in the backend's obligation language. Compared as written (after Unicode NFC): whitespace inside it is significant.",
+          "type": "string",
+          "minLength": 1
+        },
+        "required_evidence_kind": {
+          "description": "What the acceptance policy demands for this obligation, recorded so a reader sees the gap between demanded and supplied evidence without opening the policy.",
+          "type": "string",
+          "enum": [
+            "kernel-proven",
+            "machine-checked-model",
+            "property-tested",
+            "runtime-asserted",
+            "llm-corroborated",
+            "human-asserted"
+          ]
+        },
+        "intent_statement": {
+          "description": "Optional natural-language intent this obligation formalises. Carried, never promoted into the formal chain (ADR-003). Absent means none was authored; null is not allowed, so there is one representation of 'none'.",
+          "type": "string",
+          "minLength": 1
+        },
+        "assumptions": {
+          "description": "Premises the obligation depends on, stated rather than implied. A set; an empty array means genuinely none.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "affected_components": {
+          "description": "Components the obligation constrains. A set.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}
