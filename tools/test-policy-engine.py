@@ -284,6 +284,25 @@ def check_scenarios():
     d = decide(only_paths, build_report(only_paths, document), document)
     check([v["obligation_id"] for v in d["violations"]] == ["OBL-0007", "OBL-0008"],
           "paths match component prefixes of the set: only OBL-0009 touches drain.ts", f"    {d}")
+    composed, decomposed = "caf\u00e9/", "cafe\u0301/"
+    uni_set = the_set()
+    uni_set["obligations"][0]["affected_components"] = [decomposed + "q.ts"]
+    uni_policy = accept_all_policy()
+    uni_policy["rules"][0]["applies_to"] = {"paths": [composed]}
+    uni_policy2 = copy.deepcopy(uni_policy)
+    uni_policy2["rules"][0]["applies_to"] = {"paths": [decomposed]}
+    check(engine.policy_digest(uni_policy) == engine.policy_digest(uni_policy2),
+          "(setup) the two spellings have the same policy digest")
+    d1 = decide(uni_policy, build_report(uni_policy, uni_set), uni_set)
+    d2 = decide(uni_policy2, build_report(uni_policy2, uni_set), uni_set)
+    check(d1 == d2 and [v["obligation_id"] for v in d1["violations"]] == ["OBL-0008", "OBL-0009"],
+          "composed and decomposed spellings of a path select the same obligations (same digest, "
+          "same decision)", f"    {d1}\n    {d2}")
+    nfc_dup = accept_all_policy()
+    nfc_dup["rules"] = [{**nfc_dup["rules"][0], "rule_id": "R-caf\u00e9"},
+                        {**nfc_dup["rules"][0], "rule_id": "R-cafe\u0301"}]
+    scenario("rule ids equal only after NFC are duplicates", nfc_dup,
+             build_report(nfc_dup, document), document, "rejected", ["INTEGRITY-POLICY-INVALID"])
     nothing = accept_all_policy()
     nothing["rules"][0]["applies_to"] = {"all_obligations": False}
     d = decide(nothing, build_report(nothing, document), document)

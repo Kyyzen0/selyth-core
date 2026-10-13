@@ -185,6 +185,9 @@ def decide(policy, report, obligation_set):
     Preconditions: the three documents are valid against their schemas. The report's own
     `decision` is a claim and is ignored except for the digest it names.
     """
+    # Digests are taken over NFC text, so two spellings of one string are one string:
+    # decide on the normalised documents or a pinned digest would not pin the decision.
+    policy, report, obligation_set = (_canonical_value(d) for d in (policy, report, obligation_set))
     problems = _integrity(policy, report, obligation_set)
     if problems:
         return {"result": "rejected", "policy_digest": policy_digest(policy),
