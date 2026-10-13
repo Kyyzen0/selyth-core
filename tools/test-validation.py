@@ -102,6 +102,14 @@ def no_verdict(outcome, soundness):
     return mutate(apply, good_report)
 
 
+def passed_check(kind, **evidence):
+    """A coherent report whose first obligation passed an empirical check (no proof)."""
+    def apply(c):
+        c["obligations"][0].update({"outcome": "passed"})
+        c["obligations"][0]["evidence"].update({"kind": kind, **evidence})
+    return mutate(apply, good_report)
+
+
 # Structural cases added on top of the legacy suite:
 # (name, schema, instance, must_pass, why, reason-for-rejection or None)
 ADDED = [
@@ -118,6 +126,30 @@ ADDED = [
      mutate(lambda c: c["obligations"][0]["evidence"].update(soundness="none"), good_report), False,
      "a proof supports a soundness claim; 'none' is only for checks without a verdict",
      ("$.obligations[0].evidence.soundness", "enum")),
+    ("report/property-tested-passed-valid", REPORT,
+     passed_check("property-tested", soundness="empirical"), True,
+     "a property test that passed is reportable as such", None),
+    ("report/runtime-asserted-passed-valid", REPORT,
+     passed_check("runtime-asserted", soundness="empirical"), True,
+     "a runtime assertion that held is reportable as such", None),
+    ("report/human-asserted-passed-valid", REPORT,
+     passed_check("human-asserted", soundness="none", waiver_id="WAIVER-12"), True,
+     "a recorded human waiver is reportable as such", None),
+    ("report/llm-corroborated-passed-valid", REPORT,
+     passed_check("llm-corroborated", soundness="probabilistic",
+                  model_identity={"name": "some-model", "version": "x"}), True,
+     "a model's corroboration is reportable, as probabilistic", None),
+    ("report/kernel-proven-passed", REPORT, passed_check("kernel-proven", soundness="sound-for-fragment"), False,
+     "a machine-checked success is a proof, not a pass",
+     ("$.obligations[0].evidence.kind", "enum")),
+    ("report/model-check-passed", REPORT,
+     passed_check("machine-checked-model", soundness="sound-for-model", semantic_gap="gap"), False,
+     "a model check that succeeded is `proven`, not `passed`",
+     ("$.obligations[0].evidence.kind", "enum")),
+    ("report/passed-claiming-proof-soundness", REPORT,
+     passed_check("property-tested", soundness="sound-for-fragment"), False,
+     "a test that passed cannot claim fragment soundness",
+     ("$.obligations[0].evidence.soundness", "const")),
     ("report/machine-model-proven-without-soundness", REPORT, model_check(soundness="none"), False,
      "a proven model check must claim model soundness",
      ("$.obligations[0].evidence.soundness", "enum")),
