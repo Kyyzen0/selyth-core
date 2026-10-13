@@ -69,4 +69,4 @@ The IR must be exactly what the adapter lowers from the Obligation Set: the back
 
 ## Not covered here
 
-Translating TypeScript source to Dafny; running obligations together; a second backend; checking that the workspace is a faithful model of the implementation (the report says it is not checked).
+Translating TypeScript source to Dafny (done separately, see [`ts-to-dafny.md`](ts-to-dafny.md)); running obligations together; a second backend; checking that the workspace is a faithful model of the implementation (the report says it is not checked).
