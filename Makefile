@@ -14,12 +14,15 @@ VPY    := $(VENV)/bin/python
 NODE_BIN ?=
 export PATH := $(if $(NODE_BIN),$(NODE_BIN):)$(PATH)
 
-.PHONY: test test-python test-dafny test-ts venv clean
+.PHONY: test test-python test-dafny test-ts ledger-workspace venv clean
 
 test: test-python test-dafny test-ts
 
 test-python: venv
 	$(VPY) tools/test-validation.py
+	@echo
+	@echo "== TypeScript to Dafny translator: generated workspace, refusals, differential"
+	$(VPY) tools/test-ts-to-dafny.py
 	@echo
 	@echo "== Obligation Set: schema, canonical digest, report coverage"
 	$(VPY) tools/test-obligation-set.py
@@ -49,6 +52,10 @@ test-dafny: venv
 	@echo
 	@echo "== The ledger: twenty obligations on a small module, with a mutation study"
 	$(VPY) tools/test-ledger.py
+
+# Regenerate the ledger's Dafny model from ledger.ts (test-ts-to-dafny.py fails if it is stale).
+ledger-workspace: venv
+	$(VPY) tools/ts_to_dafny.py docs/specifications/examples/ledger/ledger.ts --spec docs/specifications/examples/ledger/ledger.translation.json -o docs/specifications/examples/ledger/ledger.workspace.dfy
 
 # The TypeScript port is checked against the Python adapter, so it needs the venv too.
 test-ts: venv

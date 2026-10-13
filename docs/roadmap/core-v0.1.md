@@ -58,7 +58,7 @@ M0 through M5 are the prototype. M6 is the experiment that justifies continuing.
 | Element 6 (about twenty obligations) | done on a purpose-written module, not on an existing third-party project | `docs/specifications/examples/ledger/`, `tools/test-ledger.py` |
 | M6 Evaluation | not started | needs decisions on the agent, the tasks and the budget |
 
-Nothing is claimed beyond what the tests check: the proof workspace models the implementation by hand (no TypeScript-to-Dafny translation yet), and the twenty-obligation scenario ran on a module written for the purpose, so how Core fares on someone else's code is still unknown.
+Nothing is claimed beyond what the tests check: the proof workspace is generated from the TypeScript by a translator for a pure subset ([`ts-to-dafny.md`](../specifications/ts-to-dafny.md)), but the invariants, the lemmas and the callers that prove preconditions are still written by hand, and the twenty-obligation scenario ran on a module written for the purpose, so how Core fares on someone else's code is still unknown.
 
 
 ## Evaluation

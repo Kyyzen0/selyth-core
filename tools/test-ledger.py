@@ -6,6 +6,8 @@ Beyond "they all prove", the tests ask whether the obligations are worth having:
 
   * mutation study: for each obligation, a bug in the workspace that it must catch. An
     obligation no bug can fail would pass for any implementation (the vacuity failure mode);
+  * a bug written in the TypeScript itself, translated to Dafny by tools/ts_to_dafny.py, is rejected
+    by the obligation it breaks (the proof model is generated from the code, not written beside it);
   * a precondition no caller exercises is not accepted as proven;
   * the whole run is accepted under the human-approved lock, and a regenerated, weakened
     set is not.
@@ -26,6 +28,7 @@ import dafny_backend as backend
 import obligation_set as oset
 import policy_engine as engine
 import ts_adapter as adapter
+import ts_to_dafny as t2d
 import validate
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -74,18 +77,21 @@ MUTANTS = [
     ("LED-09", "fee := amount * bps / 10000;", "fee := amount * bps / 10000 + 1;"),
     ("LED-10", "method Limit(x: int, lo: int, hi: int)\n  requires lo <= hi",
      "method Limit(x: int, lo: int, hi: int)\n  requires true"),
-    ("LED-11", "  if x < lo {\n    result := lo;\n  } else if x > hi {\n    result := hi;\n  } else {\n    result := x;\n  }",
+    ("LED-11", "  if x < lo {\n    result := lo;\n    return;\n  }\n  if x > hi {\n    result := hi;\n    return;\n  }\n  result := x;",
      "  result := x;"),
-    ("LED-12", "  } else {\n    result := x;\n  }\n}\n\nmethod Limit", "  } else {\n    result := lo;\n  }\n}\n\nmethod Limit"),
+    ("LED-12", "\n  result := x;\n}\n\nmethod Limit", "\n  result := lo;\n}\n\nmethod Limit"),
     ("LED-13", "method SplitBill(total: nat, people: nat)\n  requires people > 0",
      "method SplitBill(total: nat, people: nat)\n  requires true"),
-    ("LED-14", "share := total / parts;", "share := total / parts + 1;"),
-    ("LED-15", "remainder := total % parts;", "remainder := total % (parts + 1);"),
+    ("LED-14", "share, remainder := total / parts, total % parts;",
+     "share, remainder := total / parts + 1, total % parts;"),
+    ("LED-15", "share, remainder := total / parts, total % parts;",
+     "share, remainder := total / parts, total % (parts + 1);"),
     ("LED-16", "while i < periods", "while i <= periods"),
     ("LED-17", "    i := i + 1;", "    i := i + 0;"),
     ("LED-18", "    total := total + step;", "    total := total + step + 1;"),
     ("LED-19", "    i := i + 1;\n  }\n}", "    i := i + 1;\n  }\n  total := total + 1;\n}"),
-    ("LED-20", "toAfter := to + amount;", "toAfter := to + amount + 1;"),
+    ("LED-20", "fromAfter, toAfter := from - amount, to + amount;",
+     "fromAfter, toAfter := from - amount, to + amount + 1;"),
 ]
 
 
@@ -206,6 +212,33 @@ def check_mutation(dafny, solver, version):
           f"    {report['decision']}")
 
 
+def check_translated_bugs(dafny, solver, version):
+    heading("A bug in the TypeScript itself is caught: the Dafny model is generated from the code")
+    ts = (PROJECT / "ledger.ts").read_text(encoding="utf-8")
+    translation = validate.load_json(PROJECT / "ledger.translation.json")
+    check(t2d.translate(ts, translation) == WORKSPACE, "(setup) the committed workspace is the translation of ledger.ts")
+    bugs = [
+        ("a withdrawal that takes one cent too much", "return balance - amount;", "return balance - amount - 1;", {"LED-05"}),
+        ("a fee divided by 100 instead of 10000", "Math.floor((amount * bps) / 10000)", "Math.floor((amount * bps) / 100)", {"LED-08"}),
+        ("a clamp that lets a too-large value through", "if (x > hi) return hi;", "if (x > hi) return x;", {"LED-11"}),
+        ("a remainder taken modulo parts + 1", "total % parts]", "total % (parts + 1)]", {"LED-15"}),
+        ("an accrual that adds one cent too many (the hand-written loop invariant fails too, so every obligation fails)", "total += step;", "total += step + 1;", {"LED-18"}),
+    ]
+    for label, old, new, expected in bugs:
+        assert old in ts, old
+        report = build(dafny, solver, version, workspace=t2d.translate(ts.replace(old, new, 1), translation))
+        failed = {o["obligation_id"] for o in report["obligations"] if o["outcome"] == "failed"}
+        check(tdb.valid(report) and report["decision"]["result"] == "rejected" and expected <= failed
+              and {v["rule_id"] for v in report["decision"]["violations"]} == {"BLOCK-FAILED"},
+              f"{label}: rejected, failing {sorted(failed)}", f"    {report['decision']}")
+    try:
+        t2d.translate(ts.replace("return balance - amount;", "return Math.abs(balance - amount);", 1), translation)
+        refused = False
+    except t2d.TranslationError:
+        refused = True
+    check(refused, "a change the translator cannot read (Math.abs) is refused, not approximated")
+
+
 def check_vacuity(dafny, solver, version):
     heading("A precondition nothing calls is not proven")
     without_caller = WORKSPACE.replace(
@@ -243,6 +276,7 @@ def main():
     if version is not None:
         check_project(dafny, solver, version)
         check_mutation(dafny, solver, version)
+        check_translated_bugs(dafny, solver, version)
         check_vacuity(dafny, solver, version)
         check_lock(dafny, solver, version)
     print(f"\n{'FAILED' if FAILURES else 'all checks passed'}: {len(FAILURES)} failure(s)")
