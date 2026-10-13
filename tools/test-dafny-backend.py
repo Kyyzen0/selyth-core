@@ -53,14 +53,14 @@ def locate_dafny():
 
 
 def pipeline(dafny, solver, version, document=None, workspace=None, resource_limit=1_000_000,
-             time_limit=60, policy=None, ir_edit=None):
+             time_limit=60, policy=None, ir_edit=None, lock=None):
     document = document or osets.demo()
     ir = adapter.lower(document, version)
     if ir_edit:
         ir_edit(ir)
     data = (workspace if workspace is not None else WORKSPACE.read_text(encoding="utf-8")).encode("utf-8")
     return backend.build_report(ir, document, policy or POLICY, data, "queue.workspace.dfy",
-                                PRODUCED_AT, dafny, solver, version, resource_limit, time_limit)
+                                PRODUCED_AT, dafny, solver, version, resource_limit, time_limit, lock)
 
 
 def outcomes(report):
