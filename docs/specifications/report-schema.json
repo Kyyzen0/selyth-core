@@ -226,9 +226,11 @@
             "required": ["kind"]
           },
           "then": {
-            "properties": { "soundness": { "const": "sound-for-model" } },
-            "required": ["semantic_gap"],
-            "properties": { "semantic_gap": { "minLength": 1 } }
+            "properties": {
+              "soundness": { "const": "sound-for-model" },
+              "semantic_gap": { "minLength": 1 }
+            },
+            "required": ["semantic_gap"]
           }
         },
         {
