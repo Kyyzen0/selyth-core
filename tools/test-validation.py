@@ -111,6 +111,83 @@ ADDED = [
      ("$.obligations[0].evidence.soundness", "const")),
 ]
 
+def remote_report():
+    """A coherent report claiming remote attestation, with a remote producer."""
+    def apply(c):
+        c["producer"].update({"identity": "https://verifier.example/selyth-verify@0.1.0",
+                              "kind": "remote-service", "outside_agent_boundary": True})
+        c["trust"].update({"model": "remote-attested", "verifier_outside_agent_boundary": True})
+    return mutate(apply, good_report)
+
+
+def isolated_report(kind):
+    """A report claiming local isolation, produced by a producer of the given kind."""
+    def apply(c):
+        c["producer"].update({"kind": kind, "outside_agent_boundary": kind != "local-subprocess"})
+        c["trust"].update({"model": "local-isolated", "verifier_outside_agent_boundary": True})
+    return mutate(apply, good_report)
+
+
+def only_core_rule(policy):
+    """The policy keeps RULE-CORE-PROVEN (postcondition, invariant) and loses its catch-all."""
+    policy["rules"] = policy["rules"][:1]
+
+
+# Controls for the new structural rules: legitimate documents that must keep validating,
+# so that a rule which rejects everything cannot pass for a rule which rejects the right thing.
+ADDED += [
+    ("report/accepted-with-one-rule-evaluated", REPORT,
+     mutate(lambda c: c["decision"].update({"rules_evaluated": 1}), good_report), True,
+     "the smallest legitimate acceptance has evaluated exactly one rule", None),
+    ("report/remote-attested-valid", REPORT, remote_report(), True,
+     "a remote service outside the boundary may claim remote attestation", None),
+    ("report/local-isolated-valid", REPORT, isolated_report("container"), True,
+     "a container outside the boundary may claim a verifier outside the boundary", None),
+]
+
+# Adversarial scenarios of docs/roadmap/next-tasks-for-claude.md, task 1.3. Each belongs to
+# one layer (docs/specifications/validation-layers.md):
+#   structural: JSON Schema can state the rule, so a validator must reject the document now;
+#   semantic:   the rule compares values across fields or documents, which JSON Schema cannot
+#               do. Every document is structurally valid; rejecting it is the policy engine's job.
+# (name, schema, instance, why, reason-for-rejection)
+ADVERSARIAL_STRUCTURAL = [
+    ("report/accepted-with-zero-rules-evaluated", REPORT,
+     mutate(lambda c: c["decision"].update({"rules_evaluated": 0}), good_report),
+     "an acceptance that no rule had the chance to reject is vacuous",
+     ("$.decision.rules_evaluated", "minimum")),
+    ("report/remote-trust-with-local-producer", REPORT,
+     mutate(lambda c: c["producer"].update(
+         {"kind": "local-subprocess", "outside_agent_boundary": False}), remote_report()),
+     "a local subprocess cannot back a remote-attested trust claim",
+     ("$.producer.kind", "const")),
+    ("report/remote-trust-with-inside-boundary-producer", REPORT,
+     mutate(lambda c: c["producer"].update({"outside_agent_boundary": False}), remote_report()),
+     "a remote service that declares itself inside the boundary cannot back remote attestation",
+     ("$.producer.outside_agent_boundary", "const")),
+    ("report/outside-boundary-claim-with-local-producer", REPORT,
+     isolated_report("local-subprocess"),
+     "the trust section may not claim a verifier outside the boundary that the producer denies",
+     ("$.producer.outside_agent_boundary", "const")),
+]
+
+# (name, [(schema, instance), ...], why, what the policy engine must do)
+ADVERSARIAL_SEMANTIC = [
+    ("report/policy-digest-mismatch",
+     [(REPORT, mutate(lambda c: c["decision"].update({"policy_digest": "sha256:" + "d" * 64}),
+                      good_report))],
+     "decision.policy_digest differs from policy.policy_digest: JSON Schema cannot compare "
+     "two values of the same instance",
+     "refuse to decide when the two digests differ"),
+    ("policy/no-rule-applies-to-obligation",
+     [(POLICY, mutate(only_core_rule, good_policy)),
+      (REPORT, mutate(lambda c: c["obligations"][0].update(
+          {"kind": "termination", "statement": "decreases queue.length"}), good_report))],
+     "the policy has no rule for a `termination` obligation, yet the report claims acceptance: "
+     "matching a rule to an obligation needs both documents",
+     "never accept an obligation no rule covers; fall back to a safe default decision"),
+]
+
 FAILURES = []
 
 
@@ -201,17 +278,79 @@ def check_added(schemas):
         run_case(name, schemas[schema_path], instance, must_pass, reason)
 
 
+def check_adversarial(schemas):
+    heading("Adversarial scenarios (docs/roadmap/next-tasks-for-claude.md, task 1)")
+    for name, schema_path, instance, _why, reason in ADVERSARIAL_STRUCTURAL:
+        run_case(f"structural  {name}", schemas[schema_path], instance, False, reason)
+    gaps = []
+    for name, documents, _why, engine_duty in ADVERSARIAL_SEMANTIC:
+        problems = [p for schema_path, instance in documents
+                    for p in validate.validate(instance, schemas[schema_path])]
+        if problems:
+            check(False, f"semantic    {name}: now rejected by JSON Schema",
+                  "    Reclassify it as structural and give it the rejection reason:\n"
+                  + "\n".join(f"    {p.path}: {p.message} ({p.keyword})" for p in problems))
+        else:
+            print(f"[gap ] semantic    {name:46s} valid for JSON Schema; engine must "
+                  f"{engine_duty}")
+            gaps.append(name)
+    return gaps
+
+
+def check_rule_coverage(schemas):
+    """Neutralise each allOf rule in turn: some fixture must notice, for the right reason.
+
+    Verdicts alone are not enough. A rule can be deleted and every fixture keep its verdict
+    when another rule rejects the same document, so a fixture only counts as noticing if
+    its intended rejection reason disappears too.
+    """
+    heading("Rule coverage (every allOf rule is exercised by a fixture)")
+    cases = ([(n, sp, i, mp, LEGACY_REASONS.get(n)) for n, sp, i, mp, _w in legacy.CASES]
+             + [(n, sp, i, mp, r) for n, sp, i, mp, _w, r in ADDED]
+             + [(n, sp, i, False, r) for n, sp, i, _w, r in ADVERSARIAL_STRUCTURAL])
+
+    def notices(schema_path, schema):
+        for name, case_schema, instance, must_pass, reason in cases:
+            if case_schema != schema_path:
+                continue
+            problems = validate.validate(instance, schema)
+            if (not problems) != must_pass or (reason and not matching(problems, reason)):
+                return True
+        return False
+
+    for schema_path, schema in schemas.items():
+        total, untested = 0, []
+        for where, sub in validate.iter_subschemas(schema):
+            rules = sub.get("allOf", []) if isinstance(sub, dict) else []
+            for i, rule in enumerate(rules):
+                total += 1
+                rules[i] = {}  # a schema that accepts everything
+                try:
+                    if not notices(schema_path, schema):
+                        untested.append(f"{where}.allOf[{i}]")
+                finally:
+                    rules[i] = rule
+        check(not untested, f"{schema_path.name}: {total} allOf rules, each exercised by a fixture",
+              "    no fixture notices when these are removed:\n    " + "\n    ".join(untested))
+
+
 def main():
     version = importlib.metadata.version("jsonschema")
     print(f"Independent validator: jsonschema {version}, JSON Schema Draft 2020-12")
+    gaps = []
     schemas = check_schemas()
     check_validator_self_tests()
     if len(schemas) == 2:
         check_legacy(schemas)
         check_added(schemas)
+        gaps = check_adversarial(schemas)
+        check_rule_coverage(schemas)
 
     total_failed = len(FAILURES)
     print(f"\n{'FAILED' if total_failed else 'all checks passed'}: {total_failed} failure(s)")
+    if gaps:
+        print(f"{len(gaps)} semantic scenario(s) cannot be rejected by JSON Schema and stay open "
+              "until the policy engine exists (roadmap task 3).")
     for label, detail in FAILURES:
         print(f"\n--- {label}\n{detail}")
     return 1 if total_failed else 0

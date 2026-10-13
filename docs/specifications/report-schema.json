@@ -135,6 +135,50 @@
           }
         }
       }
+    },
+    {
+      "description": "Cross-object rule. The trust section may not claim a verifier outside the agent boundary that the producer denies being in. This is the producer's own contract: a report may not claim a guarantee stronger than the reality of producer.outside_agent_boundary.",
+      "if": {
+        "properties": {
+          "trust": {
+            "properties": { "verifier_outside_agent_boundary": { "const": true } },
+            "required": ["verifier_outside_agent_boundary"]
+          }
+        },
+        "required": ["trust"]
+      },
+      "then": {
+        "properties": {
+          "producer": {
+            "properties": { "outside_agent_boundary": { "const": true } }
+          }
+        }
+      }
+    },
+    {
+      "description": "Cross-object rule. 'remote-attested' is the state in which the producer is a declared remote identity outside the agent boundary (docs/architecture/security-model.md, step 3 of the path to real isolation). A local subprocess, or a remote service that declares itself inside the boundary, cannot back that claim.",
+      "if": {
+        "properties": {
+          "trust": {
+            "properties": { "model": { "const": "remote-attested" } },
+            "required": ["model"]
+          }
+        },
+        "required": ["trust"]
+      },
+      "then": {
+        "properties": {
+          "producer": {
+            "properties": {
+              "kind": { "const": "remote-service" },
+              "outside_agent_boundary": { "const": true }
+            }
+          },
+          "trust": {
+            "properties": { "verifier_outside_agent_boundary": { "const": true } }
+          }
+        }
+      }
     }
   ],
   "$defs": {
@@ -445,9 +489,11 @@
             "required": ["result"]
           },
           "then": {
+            "description": "An acceptance no rule had the chance to reject is vacuous. That the count is also the true number of rules the policy evaluated cannot be checked here: it needs the policy.",
             "properties": {
               "violations": { "maxItems": 0 },
-              "escalations": { "maxItems": 0 }
+              "escalations": { "maxItems": 0 },
+              "rules_evaluated": { "minimum": 1 }
             }
           }
         },

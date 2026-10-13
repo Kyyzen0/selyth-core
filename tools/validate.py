@@ -89,19 +89,19 @@ def draft_2020_12_keywords():
     return keywords
 
 
-def _subschemas(schema, path="$"):
+def iter_subschemas(schema, path="$"):
     yield path, schema
     if not isinstance(schema, dict):
         return
     for key in _SCHEMA_VALUED:
         if key in schema:
-            yield from _subschemas(schema[key], f"{path}.{key}")
+            yield from iter_subschemas(schema[key], f"{path}.{key}")
     for key in _SCHEMA_ARRAYS:
         for i, sub in enumerate(schema.get(key, [])):
-            yield from _subschemas(sub, f"{path}.{key}[{i}]")
+            yield from iter_subschemas(sub, f"{path}.{key}[{i}]")
     for key in _SCHEMA_MAPS:
         for name, sub in schema.get(key, {}).items():
-            yield from _subschemas(sub, f"{path}.{key}.{name}")
+            yield from iter_subschemas(sub, f"{path}.{key}.{name}")
 
 
 def _resolves(root, ref):
@@ -123,7 +123,7 @@ def lint_schema(schema):
     problems = []
     if schema.get("$schema") != DIALECT:
         problems.append(f"$: $schema must be {DIALECT}, got {schema.get('$schema')!r}")
-    for path, sub in _subschemas(schema):
+    for path, sub in iter_subschemas(schema):
         if not isinstance(sub, dict):
             continue
         for key in sub:
