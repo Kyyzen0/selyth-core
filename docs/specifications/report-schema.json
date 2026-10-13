@@ -1,0 +1,510 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://selyth.dev/schemas/report/v0.1.0",
+  "title": "Selyth Verification Report",
+  "description": "A content-addressed, machine-readable record of what was checked, by which tool, at what cost, and what the acceptance policy decided. The schema's conditional rules exist to make overclaiming structurally impossible: a record cannot assert a stronger guarantee than its evidence supports.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "selyth_report_version",
+    "report_id",
+    "produced_at",
+    "subject",
+    "producer",
+    "policy",
+    "obligations",
+    "decision",
+    "trust"
+  ],
+  "properties": {
+    "selyth_report_version": {
+      "description": "Semantic version of this schema instance format.",
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "report_id": {
+      "description": "Stable identifier for this report. Not a trust anchor; the subject digests and the policy digest are.",
+      "type": "string",
+      "minLength": 1
+    },
+    "produced_at": {
+      "description": "RFC 3339 timestamp. Informational only; never used in any hash.",
+      "type": "string"
+    },
+    "subject": {
+      "description": "The artifacts this report is about, mirroring the in-toto Statement subject model. Bind to artifacts, never to branches or releases.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "digest", "role"],
+        "properties": {
+          "name": { "type": "string" },
+          "digest": { "$ref": "#/$defs/digest" },
+          "role": {
+            "description": "What this artifact is. A report about 'implementation' is not a report about 'specification'.",
+            "type": "string",
+            "enum": ["implementation", "specification", "obligation-set", "policy", "test-suite", "proof-workspace"]
+          }
+        }
+      }
+    },
+    "producer": {
+      "description": "Who ran the verification. This is the trust anchor: a report whose producer is inside the agent's trust boundary is self-attestation, whatever its contents say.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "kind", "outside_agent_boundary"],
+      "properties": {
+        "identity": {
+          "description": "Build/verifier identity, following the SLSA builder.id convention.",
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["local-subprocess", "container", "remote-service", "human"]
+        },
+        "toolchain": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/tool_identity" }
+        },
+        "outside_agent_boundary": {
+          "description": "Whether the producing process was structurally outside the agent's control. A report may not claim a guarantee stronger than the reality of this flag.",
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "kind": { "const": "local-subprocess" } },
+            "required": ["kind"]
+          },
+          "then": {
+            "description": "A local subprocess is NOT a security boundary. It must say so.",
+            "properties": {
+              "outside_agent_boundary": { "const": false }
+            }
+          }
+        }
+      ]
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy_id", "policy_version", "policy_digest", "approved_by", "approval"],
+      "properties": {
+        "policy_id": { "type": "string" },
+        "policy_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "policy_digest": { "$ref": "#/$defs/digest" },
+        "approved_by": {
+          "description": "Human principal who approved this exact policy content. A policy without a named human approver is not a policy; it is a suggestion.",
+          "type": "string"
+        },
+        "approval": {
+          "description": "How the approval is evidenced. In V0.1 this is procedural, not cryptographic.",
+          "type": "string",
+          "enum": ["git-signed-commit", "explicit-revocation-file", "manual-attestation", "unverified"]
+        }
+      }
+    },
+    "obligations": {
+      "description": "One entry per obligation in the frozen obligation set. Every obligation must appear, including those not run: a silent omission is indistinguishable from an obligation that does not exist.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/obligation_result" }
+    },
+    "decision": { "$ref": "#/$defs/decision" },
+    "trust": { "$ref": "#/$defs/trust" }
+  },
+  "allOf": [
+    {
+      "description": "Cross-object rule. An accepted decision requires a policy whose approval is trusted. Without this, a report can claim an unapproved policy was applied and still be marked accepted.",
+      "if": {
+        "properties": {
+          "decision": {
+            "properties": { "result": { "const": "accepted" } },
+            "required": ["result"]
+          }
+        },
+        "required": ["decision"]
+      },
+      "then": {
+        "properties": {
+          "trust": {
+            "properties": { "policy_approval_trusted": { "const": true } }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "digest": {
+      "description": "Content digest. 'sha256:' prefix is mandatory so that a future algorithm change cannot be mistaken for a match.",
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "tool_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "evidence": {
+      "description": "What kind of evidence was produced, and what that evidence is therefore entitled to claim.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "soundness", "producer_tool", "assumptions", "scope"],
+      "properties": {
+        "kind": {
+          "description": "Evidence kind. The order of this enum is the strength lattice defined in docs/architecture/verification-engine.md; the enumeration order is normative.",
+          "type": "string",
+          "enum": [
+            "kernel-proven",
+            "machine-checked-model",
+            "property-tested",
+            "runtime-asserted",
+            "llm-corroborated",
+            "human-asserted"
+          ]
+        },
+        "soundness": {
+          "description": "The strongest claim this evidence supports. Cannot exceed the ceiling of its kind.",
+          "type": "string",
+          "enum": [
+            "sound-for-fragment",
+            "sound-for-model",
+            "empirical",
+            "probabilistic",
+            "none"
+          ]
+        },
+        "producer_tool": { "$ref": "#/$defs/tool_identity" },
+        "scope": {
+          "description": "Exactly what was checked. A soundness claim is meaningless without its scope; 'proved' with no scope is not a claim, it is a boast.",
+          "type": "string"
+        },
+        "assumptions": {
+          "description": "Explicit, enumerated premises the proof depends on. An empty array means genuinely none. Unstated assumptions are the primary way a proof becomes false later.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "semantic_gap": {
+          "description": "Required when kind is machine-checked-model: the difference between the verified model and the production artifact.",
+          "type": "string"
+        },
+        "model_identity": {
+          "description": "Required when kind is llm-corroborated. Naming the model is what makes the probabilistic claim auditable.",
+          "$ref": "#/$defs/tool_identity"
+        },
+        "waiver_id": {
+          "description": "Required when kind is human-asserted: which human waived which obligation.",
+          "type": "string"
+        },
+        "cost": { "$ref": "#/$defs/cost" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "kind": { "const": "kernel-proven" } },
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "soundness": { "const": "sound-for-fragment" },
+              "semantic_gap": { "type": "null" }
+            },
+            "required": ["cost"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "kind": { "const": "machine-checked-model" } },
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": { "soundness": { "const": "sound-for-model" } },
+            "required": ["semantic_gap"],
+            "properties": { "semantic_gap": { "minLength": 1 } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "kind": { "const": "llm-corroborated" } },
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": { "soundness": { "const": "probabilistic" } },
+            "required": ["model_identity"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "kind": { "const": "human-asserted" } },
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": { "soundness": { "const": "none" } },
+            "required": ["waiver_id"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": { "enum": ["property-tested", "runtime-asserted"] }
+            },
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": { "soundness": { "const": "empirical" } }
+          }
+        }
+      ]
+    },
+    "cost": {
+      "description": "Verification cost. Resource units are the deterministic measure; wall-clock is recorded for humans but is explicitly not a soundness input.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "resource_units": {
+          "description": "Solver resource units. Deterministic for a fixed build and input, unlike elapsed time.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "wall_ms": { "type": "integer", "minimum": 0 },
+        "cpu_ms": { "type": "integer", "minimum": 0 },
+        "peak_rss_bytes": { "type": "integer", "minimum": 0 },
+        "timed_out": { "type": "boolean" }
+      }
+    },
+    "obligation_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "obligation_id",
+        "obligation_digest",
+        "specification_version",
+        "kind",
+        "statement",
+        "intent_statement",
+        "required_evidence_kind",
+        "evidence",
+        "outcome",
+        "affected_components"
+      ],
+      "properties": {
+        "obligation_id": { "type": "string" },
+        "obligation_digest": {
+          "description": "Hash of the obligation as frozen. Lets a report be invalidated by editing the specification it claims to have checked.",
+          "$ref": "#/$defs/digest"
+        },
+        "specification_version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "precondition",
+            "postcondition",
+            "invariant",
+            "termination",
+            "permission",
+            "acceptance-criterion",
+            "resource-bound"
+          ]
+        },
+        "statement": {
+          "description": "The formal obligation text as authored.",
+          "type": "string"
+        },
+        "intent_statement": {
+          "description": "The human intent in natural language, or null if none was authored. Intent is carried, never promoted into the formal chain.",
+          "type": ["string", "null"]
+        },
+        "required_evidence_kind": {
+          "description": "What the acceptance policy demands. Recorded here so a reader can see the gap between demanded and supplied evidence without consulting the policy.",
+          "type": "string",
+          "enum": [
+            "kernel-proven",
+            "machine-checked-model",
+            "property-tested",
+            "runtime-asserted",
+            "llm-corroborated",
+            "human-asserted"
+          ]
+        },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "outcome": {
+          "type": "string",
+          "enum": ["proven", "failed", "timeout", "not-run", "unknown"]
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "affected_components": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "outcome": { "const": "proven" } },
+            "required": ["outcome"]
+          },
+          "then": {
+            "description": "The core anti-overclaim rule. 'proven' is only available to the two machine-checked evidence kinds.",
+            "properties": {
+              "evidence": {
+                "properties": {
+                  "kind": { "enum": ["kernel-proven", "machine-checked-model"] }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "outcome": { "const": "failed" } },
+            "required": ["outcome"]
+          },
+          "then": {
+            "description": "A failure without a diagnostic is not actionable and should not be accepted as a result.",
+            "required": ["diagnostics"],
+            "properties": { "diagnostics": { "minItems": 1 } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "outcome": { "enum": ["timeout", "not-run", "unknown"] } },
+            "required": ["outcome"]
+          },
+          "then": {
+            "description": "A check that did not reach a verdict produced no conclusion, so it may not carry a soundness claim. Without this, a timed-out kernel check would still be recorded as sound-for-fragment and a skipped check would read as a satisfied one.",
+            "properties": {
+              "evidence": {
+                "properties": {
+                  "soundness": { "enum": ["empirical", "probabilistic", "none"] }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "decision": {
+      "description": "The acceptance verdict. Three-valued on purpose: 'not yet acceptable' and 'we do not know' call for different human actions, and collapsing them is how a gate becomes theatre.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result", "policy_digest", "rules_evaluated", "violations", "escalations"],
+      "properties": {
+        "result": {
+          "type": "string",
+          "enum": ["accepted", "rejected", "needs-human"]
+        },
+        "policy_digest": { "$ref": "#/$defs/digest" },
+        "rules_evaluated": { "type": "integer", "minimum": 0 },
+        "violations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["rule_id", "message"],
+            "properties": {
+              "rule_id": { "type": "string" },
+              "obligation_id": { "type": ["string", "null"] },
+              "message": { "type": "string" }
+            }
+          }
+        },
+        "escalations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["reason", "requested_of"],
+            "properties": {
+              "reason": { "type": "string" },
+              "requested_of": { "type": "string" },
+              "obligation_id": { "type": ["string", "null"] }
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "result": { "const": "accepted" } },
+            "required": ["result"]
+          },
+          "then": {
+            "properties": {
+              "violations": { "maxItems": 0 },
+              "escalations": { "maxItems": 0 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "result": { "const": "rejected" } },
+            "required": ["result"]
+          },
+          "then": {
+            "description": "A rejection must name the rule that produced it.",
+            "properties": { "violations": { "minItems": 1 } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "result": { "const": "needs-human" } },
+            "required": ["result"]
+          },
+          "then": {
+            "description": "An escalation must name what is being asked, and of whom.",
+            "properties": { "escalations": { "minItems": 1 } }
+          }
+        }
+      ]
+    },
+    "trust": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model", "verifier_outside_agent_boundary", "policy_approval_trusted", "limitations"],
+      "properties": {
+        "model": {
+          "type": "string",
+          "enum": [
+            "local-structural",
+            "local-isolated",
+            "remote-attested"
+          ]
+        },
+        "verifier_outside_agent_boundary": { "type": "boolean" },
+        "policy_approval_trusted": { "type": "boolean" },
+        "limitations": {
+          "description": "What this report does not establish. A report with an empty limitations list is asserting that it established everything it checked, which no V0.1 run can honestly claim.",
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "model": { "const": "local-structural" } },
+            "required": ["model"]
+          },
+          "then": {
+            "description": "Local structural integrity is not a security guarantee; the flag must not imply one.",
+            "properties": { "verifier_outside_agent_boundary": { "const": false } }
+          }
+        }
+      ]
+    }
+  }
+}
