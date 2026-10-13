@@ -38,7 +38,7 @@ M6 compares arm A (agent + Dafny) with arm B (agent + Dafny + Selyth layer). `co
 
 ### 4. Measuring human review
 
-- An reviewer external to the project examines only the cases that genuinely require a human decision.
+- A reviewer external to the project examines only the cases that genuinely require a human decision.
 - They receive the code, the frozen obligations and a standardised evidence package; they never access the hidden oracle.
 - The measurement starts when the review file is opened and stops when a structured verdict is submitted: accept, reject or request information.
 - The form automatically records start, end, verdict and reason; interruptions are reported separately.
