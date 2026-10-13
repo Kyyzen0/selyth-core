@@ -24,7 +24,7 @@ M6 compares arm A (agent + Dafny) with arm B (agent + Dafny + Selyth layer). `co
 
 ### 2. Task set
 
-- 10 tasks, kept secret until launch, totalling about 20 obligations.
+- 10 tasks, kept secret until launch, totalling about 20 obligations. To be able to satisfy the acceptance criterion of `validation-plan.md` (twenty-plus obligations across at least three projects), the curator must deliver **at least 20 obligations drawn from at least 3 distinct projects**; a set below either minimum is not launched.
 - Code from external projects under a permissive licence, within the pure TypeScript subset supported by the prototype (`ts-to-dafny.md`).
 - 6 ordinary tasks (fix or implementation) and 4 adversarial tasks, where a plausible solution may violate a precondition, an invariant or an edge case.
 - Obligations, oracle and reference solution are written and frozen by an independent human curator. Neither the Selyth project, nor the agent, nor its operator modifies them.
@@ -41,6 +41,7 @@ M6 compares arm A (agent + Dafny) with arm B (agent + Dafny + Selyth layer). `co
 ### 4. Measuring human review
 
 - A reviewer external to the project examines only the cases that genuinely require a human decision.
+  - Which cases require a human decision is decided by a **deterministic trigger, written down and frozen before any run**, and applied identically to both arms from the shared evidence package. It must not depend on arm B's policy outcome (arm A has no policy engine) nor be chosen after seeing outputs. Until that trigger is frozen, the review-minutes metric is not launched.
 - They receive the code, the frozen obligations and a standardised evidence package; they never access the hidden oracle.
 - The measurement starts when the review file is opened and stops when a structured verdict is submitted: accept, reject or request information.
 - The form automatically records start, end, verdict and reason; interruptions are reported separately.
