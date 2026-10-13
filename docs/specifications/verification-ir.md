@@ -41,6 +41,10 @@ Every unit and every unsupported entry also carries `kind`, `statement`, `requir
 
 Assumptions travel in `context` for the report. They are never lowered to `assume`.
 
+## Implementations
+
+Two implementations exist and must agree byte for byte: `tools/ts_adapter.py` (Python, the reference) and `ts/` (TypeScript on Node). The TypeScript tests run both on the same inputs and compare their output, so a divergence in canonicalisation, ordering (code point, not UTF-16 code unit), Unicode normalisation or integer handling fails the build. Changing the output of either requires changing `ADAPTER_VERSION` in both.
+
 ## Not covered here
 
-Translating a TypeScript implementation to the backend's language (the LemmaScript step) is not part of this milestone: the determinism of the lowering is, and it is the property everything after it relies on. The adapter is a Python tool like the rest of `tools/`; "TypeScript" names the source language whose expression syntax it accepts.
+Translating a TypeScript implementation to the backend's language (the LemmaScript step) is not part of this milestone: the determinism of the lowering is, and it is the property everything after it relies on.
