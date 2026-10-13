@@ -1,16 +1,23 @@
 # Test entry point. Everything runs inside a virtualenv built from the pinned,
 # hash-locked requirements.txt, so the validator version cannot drift.
 #
-#   make test                     run every schema check
+#   make test                     run every check: Python suites, then the TypeScript port
+#   make test-python              Python suites only (no Node needed)
+#   make test-ts                  TypeScript port only (needs Node >= 24; NODE_BIN=<dir> if not on PATH)
 #   make test PYTHON=python3.12   use another interpreter (>= 3.9) for the venv
 #   make clean                    delete the venv
 PYTHON ?= python3
 VENV   := .venv
 VPY    := $(VENV)/bin/python
 
-.PHONY: test venv clean
+NODE_BIN ?=
+export PATH := $(if $(NODE_BIN),$(NODE_BIN):)$(PATH)
 
-test: venv
+.PHONY: test test-python test-ts venv clean
+
+test: test-python test-ts
+
+test-python: venv
 	$(VPY) tools/test-validation.py
 	@echo
 	@echo "== Obligation Set: schema, canonical digest, report coverage"
@@ -32,5 +39,10 @@ $(VENV)/.installed: requirements.txt
 	$(VPY) -m pip install --quiet --disable-pip-version-check --require-hashes -r requirements.txt
 	touch $@
 
+# The TypeScript port is checked against the Python adapter, so it needs the venv too.
+test-ts: venv
+	@command -v node >/dev/null || { echo "Node >= 24 not found: install it or pass NODE_BIN=<dir with node>"; exit 1; }
+	cd ts && npm ci --ignore-scripts --no-audit --no-fund && npm test
+
 clean:
-	rm -rf $(VENV)
+	rm -rf $(VENV) ts/node_modules
