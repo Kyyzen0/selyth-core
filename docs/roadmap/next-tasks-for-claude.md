@@ -67,7 +67,7 @@ Les trois tâches ci-dessus et la « Suite prévue » sont faites et mergées :
 
 Reste à faire, par ordre de décision à prendre :
 
-1. Un scénario réel d'une vingtaine d'obligations `kernel-proven` sur un petit projet (élément 6 de `core-v0.1.md`).
+1. Fait sur un module écrit pour l'occasion : vingt obligations `kernel-proven`, étude de mutation, précondition vacuité (`docs/specifications/examples/ledger/`, PR #11). Reste à l'essayer sur le code d'un tiers.
 2. La traduction d'un sous-ensemble pur de TypeScript vers Dafny, qui remplacerait l'atelier de preuve écrit à la main.
 3. L'évaluation M6 (A contre B), qui demande de choisir l'agent, les tâches et le budget.
 4. Points de conception ouverts : `requires_intent_corroboration` ne peut pas être satisfait en même temps qu'une preuve (une seule preuve par obligation dans le rapport) ; `non_empty_assumptions` est lu littéralement ; `cost_budget` n'est pas appliqué ; le contenu des champs que le rapport recopie de l'Obligation Set n'est pas comparé.

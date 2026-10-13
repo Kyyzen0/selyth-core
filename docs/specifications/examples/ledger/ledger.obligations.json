@@ -1,0 +1,259 @@
+{
+  "selyth_obligation_set_version": "0.1.0",
+  "set_id": "ledger",
+  "specification_version": "1.0.0",
+  "title": "Ledger money arithmetic",
+  "obligations": [
+    {
+      "obligation_id": "LED-01",
+      "kind": "precondition",
+      "statement": "requires balance + amount <= cap",
+      "required_evidence_kind": "kernel-proven",
+      "intent_statement": "A deposit never takes an account above its cap.",
+      "assumptions": [
+        "every amount is a safe integer (below 2^53), so a TypeScript number behaves as a mathematical integer"
+      ],
+      "affected_components": [
+        "ledger.ts"
+      ]
+    },
+    {
+      "obligation_id": "LED-02",
+      "kind": "postcondition",
+      "statement": "ensures result == balance + amount",
+      "required_evidence_kind": "kernel-proven",
+      "intent_statement": "A deposit adds exactly the amount.",
+      "assumptions": [
+        "every amount is a safe integer (below 2^53), so a TypeScript number behaves as a mathematical integer",
+        "amounts are in cents, never fractions of a cent"
+      ],
+      "affected_components": [
+        "ledger.ts"
+      ]
+    },
+    {
+      "obligation_id": "LED-03",
+      "kind": "postcondition",
+      "statement": "ensures result <= cap",
+      "required_evidence_kind": "kernel-proven",
+      "intent_statement": "An account never exceeds its cap after a deposit.",
+      "assumptions": [
+        "every amount is a safe integer (below 2^53), so a TypeScript number behaves as a mathematical integer"
+      ],
+      "affected_components": [
+        "ledger.ts"
+      ]
+    },
+    {
+      "obligation_id": "LED-04",
+      "kind": "precondition",
+      "statement": "requires amount <= balance",
+      "required_evidence_kind": "kernel-proven",
+      "intent_statement": "Nobody withdraws more than the balance.",
+      "assumptions": [
+        "every amount is a safe integer (below 2^53), so a TypeScript number behaves as a mathematical integer"
+      ],
+      "affected_components": [
+        "ledger.ts"
+      ]
+    },
+    {
+      "obligation_id": "LED-05",
+      "kind": "postcondition",
+      "statement": "ensures result == balance - amount",
+      "required_evidence_kind": "kernel-proven",
+      "intent_statement": "A withdrawal removes exactly the amount.",
+      "assumptions": [
+        "every amount is a safe integer (below 2^53), so a TypeScript number behaves as a mathematical integer",
+        "amounts are in cents, never fractions of a cent"
+      ],
+      "affected_components": [
+        "ledger.ts"
+      ]
+    },
+    {
+      "obligation_id": "LED-06",
+      "kind": "postcondition",
+      "statement": "ensures 0 <= result <= balance",
+      "required_evidence_kind": "kernel-proven",
+      "intent_statement": "A withdrawal never overdraws and never increases the balance.",
+      "assumptions": [
+        "every amount is a safe integer (below 2^53), so a TypeScript number behaves as a mathematical integer"
+      ],
+      "affected_components": [
+        "ledger.ts"
+      ]
+    },
+    {
+      "obligation_id": "LED-07",
+      "kind": "precondition",
+      "statement": "requires bps <= 10000",
+      "required_evidence_kind": "kernel-proven",
+      "intent_statement": "A fee rate is at most 100 percent.",
+      "assumptions": [
+        "every amount is a safe integer (below 2^53), so a TypeScript number behaves as a mathematical integer"
+      ],
+      "affected_components": [
+        "ledger.ts"
+      ]
+    },
+    {
+      "obligation_id": "LED-08",
+      "kind": "postcondition",
+      "statement": "ensures fee <= amount",
+      "required_evidence_kind": "kernel-proven",
+      "intent_statement": "A fee never exceeds the amount it is charged on.",
+      "assumptions": [
+        "every amount is a safe integer (below 2^53), so a TypeScript number behaves as a mathematical integer"
+      ],
+      "affected_components": [
+        "ledger.ts"
+      ]
+    },
+    {
+      "obligation_id": "LED-09",
+      "kind": "postcondition",
+      "statement": "ensures bps == 0 ==> fee == 0",
+      "required_evidence_kind": "kernel-proven",
+      "intent_statement": "A zero rate charges nothing.",
+      "assumptions": [
+        "every amount is a safe integer (below 2^53), so a TypeScript number behaves as a mathematical integer"
+      ],
+      "affected_components": [
+        "ledger.ts"
+      ]
+    },
+    {
+      "obligation_id": "LED-10",
+      "kind": "precondition",
+      "statement": "requires lo <= hi",
+      "required_evidence_kind": "kernel-proven",
+      "intent_statement": "A range has its bounds in order.",
+      "assumptions": [],
+      "affected_components": [
+        "ledger.ts"
+      ]
+    },
+    {
+      "obligation_id": "LED-11",
+      "kind": "postcondition",
+      "statement": "ensures lo <= result <= hi",
+      "required_evidence_kind": "kernel-proven",
+      "intent_statement": "A clamped value is inside the range.",
+      "assumptions": [],
+      "affected_components": [
+        "ledger.ts"
+      ]
+    },
+    {
+      "obligation_id": "LED-12",
+      "kind": "postcondition",
+      "statement": "ensures lo <= x <= hi ==> result == x",
+      "required_evidence_kind": "kernel-proven",
+      "intent_statement": "A value already inside the range is left alone.",
+      "assumptions": [],
+      "affected_components": [
+        "ledger.ts"
+      ]
+    },
+    {
+      "obligation_id": "LED-13",
+      "kind": "precondition",
+      "statement": "requires parts > 0",
+      "required_evidence_kind": "kernel-proven",
+      "intent_statement": "A bill is split between at least one person.",
+      "assumptions": [],
+      "affected_components": [
+        "ledger.ts"
+      ]
+    },
+    {
+      "obligation_id": "LED-14",
+      "kind": "postcondition",
+      "statement": "ensures share * parts + remainder == total",
+      "required_evidence_kind": "kernel-proven",
+      "intent_statement": "No cent is lost or created when splitting.",
+      "assumptions": [
+        "every amount is a safe integer (below 2^53), so a TypeScript number behaves as a mathematical integer",
+        "amounts are in cents, never fractions of a cent"
+      ],
+      "affected_components": [
+        "ledger.ts"
+      ]
+    },
+    {
+      "obligation_id": "LED-15",
+      "kind": "postcondition",
+      "statement": "ensures remainder < parts",
+      "required_evidence_kind": "kernel-proven",
+      "intent_statement": "The remainder is smaller than one share's worth of people.",
+      "assumptions": [
+        "every amount is a safe integer (below 2^53), so a TypeScript number behaves as a mathematical integer"
+      ],
+      "affected_components": [
+        "ledger.ts"
+      ]
+    },
+    {
+      "obligation_id": "LED-16",
+      "kind": "invariant",
+      "statement": "invariant 0 <= i <= periods",
+      "required_evidence_kind": "kernel-proven",
+      "intent_statement": "Accrual never runs past its last period.",
+      "assumptions": [],
+      "affected_components": [
+        "ledger.ts"
+      ]
+    },
+    {
+      "obligation_id": "LED-17",
+      "kind": "termination",
+      "statement": "decreases periods - i",
+      "required_evidence_kind": "kernel-proven",
+      "intent_statement": "Accrual terminates.",
+      "assumptions": [],
+      "affected_components": [
+        "ledger.ts"
+      ]
+    },
+    {
+      "obligation_id": "LED-18",
+      "kind": "invariant",
+      "statement": "invariant total == balance + i * step",
+      "required_evidence_kind": "kernel-proven",
+      "intent_statement": "After i periods the total is the balance plus i steps.",
+      "assumptions": [
+        "every amount is a safe integer (below 2^53), so a TypeScript number behaves as a mathematical integer"
+      ],
+      "affected_components": [
+        "ledger.ts"
+      ]
+    },
+    {
+      "obligation_id": "LED-19",
+      "kind": "postcondition",
+      "statement": "ensures total == balance + periods * step",
+      "required_evidence_kind": "kernel-proven",
+      "intent_statement": "Accruing n periods adds n times the step.",
+      "assumptions": [
+        "every amount is a safe integer (below 2^53), so a TypeScript number behaves as a mathematical integer"
+      ],
+      "affected_components": [
+        "ledger.ts"
+      ]
+    },
+    {
+      "obligation_id": "LED-20",
+      "kind": "postcondition",
+      "statement": "ensures fromAfter + toAfter == from + to",
+      "required_evidence_kind": "kernel-proven",
+      "intent_statement": "A transfer conserves the total money in the system.",
+      "assumptions": [
+        "every amount is a safe integer (below 2^53), so a TypeScript number behaves as a mathematical integer"
+      ],
+      "affected_components": [
+        "ledger.ts"
+      ]
+    }
+  ]
+}
