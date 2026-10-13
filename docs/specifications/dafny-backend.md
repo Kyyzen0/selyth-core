@@ -45,11 +45,11 @@ The evidence kind is always `kernel-proven`: it names the kind of check, and the
 
 ## Trust escapes
 
-Policy blocking rule 5 forbids `assume`, `{:axiom}` and their equivalents. The backend scans the workspace (comments and string contents removed) for `assume`, `{:axiom}`, `{:verify false}` and `{:extern}`. If any is present, **every** obligation is `failed` with the construct and its line, and Dafny is not trusted for that workspace: a proof that stands on an `assume` is not a proof of the obligation. (The scan is lexical; a construct the list does not know is not caught.)
+Policy blocking rule 5 forbids `assume`, `{:axiom}` and their equivalents. The backend scans the workspace (comments and string contents removed) for `assume`, `expect` (which the verifier treats as an assumption; it is only checked at run time), `{:axiom}`, `{:verify false}`, `{:extern}` and `include`. An `include` is refused because Dafny does not verify included files unless asked, and an included file would be neither scanned nor bound by the report's digests. If any is present, **every** obligation is `failed` with the construct and its line, and Dafny is not trusted for that workspace: a proof that stands on an `assume` is not a proof of the obligation. The scan is lexical; a construct the list does not know is not caught. Body-less lemmas and functions are not scanned for: Dafny warns about them, and the backend runs without `--allow-warnings`, so a clean verification summary with a non-zero exit status is `failed`, with the warnings quoted.
 
 ## Tool identity
 
-The IR declares the verification tool it targets. The backend refuses to run if the installed Dafny's version differs (exit 2, no report): a report must name the tool that really produced it. Z3 is pinned by the backend (`4.12.1`, passed with `--solver-path`) and recorded in the toolchain. Dafny's and Z3's own correctness is trusted, not checked, and the report's `limitations` say so.
+The IR must be exactly what the adapter lowers from the Obligation Set: the backend recomputes the lowering and refuses (exit 2, no report) an IR that differs in any field, so an edited clause or another adapter version cannot be verified under the set's digests. The IR declares the verification tool it targets. The backend refuses to run if the installed Dafny's version differs (exit 2, no report): a report must name the tool that really produced it. Z3 is pinned by the backend (`4.12.1`, passed with `--solver-path`) and recorded in the toolchain. Dafny's and Z3's own correctness is trusted, not checked, and the report's `limitations` say so.
 
 ## The report
 

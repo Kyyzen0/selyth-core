@@ -111,6 +111,9 @@ def check_units():
     heading("Trust-escape scan")
     for text, expected in (
         ("method M() { assume true; }", [("assume")]),
+        ("method M() { expect false; }", ["expect"]),
+        ('include "lib.dfy"', ["include"]),
+        ("var expected := 1; var inclusion := 2;", []),
         ("lemma {:axiom} L() ensures false", ["{:axiom}"]),
         ("lemma { :axiom } L()", ["{:axiom}"]),
         ("method {:verify false} M() {}", ["{:verify false}"]),
@@ -185,7 +188,7 @@ def check_pipeline(dafny, solver, version):
     report = pipeline(dafny, solver, version, document=cheat_set, workspace=cheat)
     check(valid(report) and set(outcomes(report).values()) == {"failed"},
           "the backend fails every obligation of the workspace", f"    {outcomes(report)}")
-    check(all("trust-escape construct assume at line" in o["diagnostics"][0] for o in report["obligations"])
+    check(all("forbidden construct assume at line" in o["diagnostics"][0] for o in report["obligations"])
           and "wall_ms" not in report["obligations"][0]["evidence"]["cost"],
           "naming the construct and the line, without running Dafny")
     check(report["decision"]["result"] == "rejected", "so the policy engine rejects")
@@ -193,6 +196,51 @@ def check_pipeline(dafny, solver, version):
         "datatype Queue", "// we never assume anything: {:axiom} is forbidden\ndatatype Queue", 1)
     check(set(outcomes(pipeline(dafny, solver, version, workspace=quiet)).values()) == {"proven"},
           "the same words in a comment do not trigger the scan")
+
+    for construct, injected in (("expect", "  expect false;\n"), ("include", None)):
+        body = "  result := Queue(l.length + 1, l.size, l.capacity);"
+        text = WORKSPACE.read_text(encoding="utf-8")
+        text = text.replace(body, injected + body) if injected else 'include "/nonexistent/lib.dfy"\n' + text
+        report = pipeline(dafny, solver, version, workspace=text)
+        check(valid(report) and set(outcomes(report).values()) == {"failed"}
+              and all(f"forbidden construct {construct} at line" in o["diagnostics"][0] for o in report["obligations"])
+              and "wall_ms" not in report["obligations"][0]["evidence"]["cost"],
+              f"`{construct}` fails every obligation without running Dafny", f"    {outcomes(report)}")
+    expect_source = backend.instantiate(WORKSPACE.read_text(encoding="utf-8").replace(
+        "  result := Queue(l.length + 1, l.size, l.capacity);",
+        "  expect false;\n  result := Queue(l.length + 1, l.size, l.capacity);"),
+        "OBL-0007", "ensures result.length > 5")
+    with tempfile.TemporaryDirectory(prefix="selyth-dafny-") as tmp:
+        path = Path(tmp) / "expect.dfy"
+        path.write_text(expect_source, encoding="utf-8")
+        alone = subprocess.run([str(dafny), "verify", "--solver-path", str(solver), str(path)],
+                               capture_output=True, text=True)
+    check(alone.returncode == 0 and "0 errors" in alone.stdout,
+          "(setup) Dafny alone, exit 0, accepts a false obligation after `expect false`",
+          f"    exit {alone.returncode}: {alone.stdout[-200:]}")
+    bodyless = WORKSPACE.read_text(encoding="utf-8") + "\nlemma Free() ensures false\n"
+    report = pipeline(dafny, solver, version, workspace=bodyless)
+    check(set(outcomes(report).values()) == {"failed"} and any("Warning" in d for d in report["obligations"][0]["diagnostics"]),
+          "a body-less lemma is caught through Dafny's warning exit status, and the warning is reported",
+          f"    {report['obligations'][0].get('diagnostics')}")
+
+    heading("The IR must be the lowering of the Obligation Set")
+
+    def tamper(ir):
+        ir["units"][0]["clause"]["expression"] = "true"
+    try:
+        pipeline(dafny, solver, version, ir_edit=tamper)
+        check(False, "an IR whose clause was replaced by `true` is refused", "    a report was produced")
+    except backend.BackendError as exc:
+        check("fresh lowering" in str(exc), "an IR whose clause was replaced by `true` is refused", f"    {exc}")
+
+    def other_adapter(ir):
+        ir["adapter"]["version"] = "9.9.9"
+    try:
+        pipeline(dafny, solver, version, ir_edit=other_adapter)
+        check(False, "an IR from another adapter version is refused", "    a report was produced")
+    except backend.BackendError:
+        check(True, "an IR from another adapter version is refused (regenerate it)")
 
     heading("No verdict")
     report = pipeline(dafny, solver, version, resource_limit=1)

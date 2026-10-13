@@ -28,6 +28,7 @@ from pathlib import Path
 
 import obligation_set as oset
 import policy_engine as engine
+import ts_adapter
 import validate
 
 BACKEND_NAME = "dafny"
@@ -37,9 +38,13 @@ DEFAULT_RESOURCE_LIMIT = 1_000_000
 DEFAULT_TIME_LIMIT = 60
 
 MARKER = re.compile(r"^([ \t]*)// selyth:obligation[ \t]+(\S+)[ \t]*$")
-# Constructs that make a Dafny proof conditional on something Dafny did not check.
+# Constructs that make a Dafny proof depend on something Dafny did not check, or that the
+# report does not bind. `expect` is verified as an assumption (it is checked only at run
+# time); `include` pulls in files that are neither verified, scanned nor in the report digest.
 TRUST_ESCAPES = (
     (re.compile(r"\bassume\b"), "assume"),
+    (re.compile(r"\bexpect\b"), "expect"),
+    (re.compile(r"\binclude\b"), "include"),
     (re.compile(r"\{\s*:\s*axiom\b"), "{:axiom}"),
     (re.compile(r"\{\s*:\s*verify\s+false\b"), "{:verify false}"),
     (re.compile(r"\{\s*:\s*extern\b"), "{:extern}"),
@@ -147,7 +152,8 @@ def parse_dafny(text, returncode):
     if verified == 0:
         return "unknown", ["Dafny verified nothing: the clause was not attached to anything it checks"]
     if returncode != 0:
-        return "failed", [f"Dafny reported success but exited with status {returncode}"]
+        warnings = [line.strip() for line in text.splitlines() if "Warning" in line][:5]
+        return "failed", [f"Dafny reported no error but exited with status {returncode}"] + warnings
     return "proven", []
 
 
@@ -210,7 +216,8 @@ def obligation_results(ir, source, workspace_name, dafny, solver, version, resou
                  f"(resource limit {resource_limit}, time limit {time_limit}s, z3 {Z3_VERSION})")
         if escapes:
             outcome, cost = "failed", {"timed_out": False}
-            diagnostics = [f"trust-escape construct {name} at line {line} of {workspace_name}"
+            diagnostics = [f"forbidden construct {name} at line {line} of {workspace_name}: the proof "
+                           "would depend on something Dafny did not check or the report does not bind"
                            for line, name in escapes]
         else:
             outcome, diagnostics, cost = run_obligation(dafny, solver, workspace_name, source, unit,
@@ -238,6 +245,9 @@ def build_report(ir, obligation_set, policy, workspace_bytes, workspace_name, pr
     set_digest = oset.set_digest(obligation_set)
     if ir["obligation_set"]["digest"] != set_digest:
         raise BackendError("the IR was lowered from a different Obligation Set than the one given")
+    if ir != ts_adapter.lower(obligation_set, ir["backend"]["version"]):
+        raise BackendError("the IR differs from a fresh lowering of the Obligation Set (it was edited, "
+                           "or made by another adapter version); regenerate it with ts_adapter.py")
     policy_digest = engine.policy_digest(policy)
     results = obligation_results(ir, source, workspace_name, dafny, solver, version,
                                  resource_limit, time_limit)
