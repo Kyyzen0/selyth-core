@@ -308,6 +308,16 @@ def check_refusals():
     refused("lone surrogate", text.replace("Bounded queue", "Bounded \\ud800 queue"))
     refused("byte-order mark", "﻿" + text)
     refused("not JSON", "{not json")
+    with tempfile.TemporaryDirectory(prefix="selyth-oset-") as tmp:
+        path = Path(tmp) / "bad.json"
+        original = DEMO.read_bytes()
+        at = original.index(b"Bounded queue") + 7
+        path.write_bytes(original[:at] + b"\xff\xfe" + original[at:])
+        try:
+            oset.load_obligation_set(path)
+            check(False, "refused: malformed UTF-8 in a file", "    accepted")
+        except oset.ObligationSetError as exc:
+            check("UTF-8" in str(exc), "refused: malformed UTF-8 in a file", f"    {exc}")
 
 
 # ---------------------------------------------------------------- coverage

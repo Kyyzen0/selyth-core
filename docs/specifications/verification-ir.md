@@ -31,6 +31,8 @@ Each obligation is lowered to one clause of the backend, chosen by its `kind`:
 | `termination` | `decreases` |
 | `permission`, `acceptance-criterion`, `resource-bound` | not lowerable by this adapter |
 
+A character the grammar does not accept is reported by code point (`U+FEFF`), never through a language's `repr`, whose output depends on its Unicode database.
+
 The statement must start with its clause keyword followed by an expression in the supported subset (`ensures result.length > 0`). The expression is parsed and printed back in a canonical form (single spaces around binary operators, parentheses only where precedence needs them), so spelling does not change the IR.
 
 **Supported expression subset** (pure, no calls, no indexing, no assignment): identifiers; member access `a.b.c`; non-negative integer literals; `true`, `false`; unary `!` and `-`; binary `* / %`, `+ -`, comparisons `< <= > >= == !=` (chains of `<` and `<=`, as in `0 <= size <= capacity`), `&&`, `||`, `==>` (right associative); parentheses.
@@ -41,6 +43,10 @@ Every unit and every unsupported entry also carries `kind`, `statement`, `requir
 
 Assumptions travel in `context` for the report. They are never lowered to `assume`.
 
+## Implementations
+
+Two implementations exist and must agree byte for byte: `tools/ts_adapter.py` (Python, the reference) and `ts/` (TypeScript on Node). The TypeScript tests run both on the same inputs and compare their output, so a divergence in canonicalisation, ordering (code point, not UTF-16 code unit), Unicode normalisation or integer handling fails the build. Changing the output of either requires changing `ADAPTER_VERSION` in both.
+
 ## Not covered here
 
-Translating a TypeScript implementation to the backend's language (the LemmaScript step) is not part of this milestone: the determinism of the lowering is, and it is the property everything after it relies on. The adapter is a Python tool like the rest of `tools/`; "TypeScript" names the source language whose expression syntax it accepts.
+Translating a TypeScript implementation to the backend's language (the LemmaScript step) is not part of this milestone: the determinism of the lowering is, and it is the property everything after it relies on.

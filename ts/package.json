@@ -1,0 +1,21 @@
+{
+  "name": "selyth-ts-adapter",
+  "version": "0.2.1",
+  "private": true,
+  "description": "TypeScript implementation of the Selyth adapter: Obligation Set -> Verification IR.",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "tsc --noEmit && node --test test/*.test.ts"
+  },
+  "dependencies": {
+    "ajv": "8.20.0"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.5",
+    "typescript": "7.0.2"
+  }
+}

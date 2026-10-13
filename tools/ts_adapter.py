@@ -22,7 +22,7 @@ import obligation_set as oset
 
 ADAPTER_NAME = "selyth-ts-adapter"
 # Changing what `lower` emits for any input requires changing this value.
-ADAPTER_VERSION = "0.2.0"
+ADAPTER_VERSION = "0.2.1"
 IR_VERSION = "0.2.0"
 BACKEND_NAME = "dafny"
 
@@ -42,7 +42,8 @@ def _tokenize(text):
     while pos < len(text):
         match = _TOKEN.match(text, pos)
         if not match:
-            raise ExpressionError(f"unsupported character {text[pos:].lstrip()[:1]!r}")
+            # Code point notation, not repr(): repr depends on the interpreter's Unicode database.
+            raise ExpressionError(f"unsupported character U+{ord(text[pos:].lstrip()[0]):04X}")
         tokens.append(match.group(1))
         pos = match.end()
     return tokens
