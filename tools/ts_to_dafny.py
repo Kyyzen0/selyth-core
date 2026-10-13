@@ -252,11 +252,13 @@ class Parser:
             self.next()
             self.accept("?.")
             self.eat("(")
-            depth = 1
-            while depth:
-                t = self.next()
-                depth += t == "("
-                depth -= t == ")"
+            # The call is dropped, so its arguments must have no effect to lose: they are parsed
+            # as expressions, a grammar with no assignment, increment or call.
+            if self.peek() != ")":
+                self.expr()
+                while self.accept(","):
+                    self.expr()
+            self.eat(")")
             self.eat(";")
             return None
         if self.kind() == "id":

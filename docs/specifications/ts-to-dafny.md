@@ -15,7 +15,7 @@
 | `while (c)` or `while (true) { if (e) break; ... }` | `while c` / `while !e` (a comparison is inverted, not wrapped) |
 | `Math.floor(a / b)`, `%` | `a / b`, `a % b`, only on provably non-negative operands |
 | `===`, `!==`, `&&`, `\|\|`, `!`, comparisons | `==`, `!=`, `&&`, `\|\|`, `!`, comparisons |
-| a trailing optional function parameter and its calls | dropped (a test hook has no counterpart in the proof) |
+| a trailing optional function parameter and its calls | dropped (a test hook has no counterpart in the proof); the arguments must be side-effect-free expressions, otherwise refused |
 
 Anything else is refused with the reason: strings, classes, calls, ternaries, `for`, `switch`, non-integer literals, `==`, a bare `/`, other `Math` functions, a second loop in a function, a name that is not declared.
 

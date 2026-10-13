@@ -167,6 +167,8 @@ def check_refusals():
         "a subtraction under a division": "export function f(a: number, b: number): number { return Math.floor((a - b) / 2); }",
         "a shadowed parameter": "export function f(a: number, b: number): number { let a = 1; return a; }",
         "an assignment to an undeclared name": "export function f(a: number, b: number): number { z = 1; return a; }",
+        "a hook argument with a side effect": "export function f(a: number, observe?: (x: number) => void): number { let x = a; observe?.(x++); return x; }",
+        "a hook argument that calls": "export function f(a: number, observe?: (x: number) => void): number { observe?.(g(a)); return a; }",
         "a for loop": "export function f(a: number, b: number): number { for (;;) {} }",
         "a switch": "export function f(a: number, b: number): number { switch (a) {} }",
     }
