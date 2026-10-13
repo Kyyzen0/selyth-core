@@ -450,9 +450,13 @@ class Context:
         if kind == "un":
             inner = e[2]
             text = self.emit(inner)
-            if inner[0] in ("bin", "floordiv") or (inner[0] == "un" and e[1] == "-" and inner[1] == "-"):
+            if e[1] == "-":
+                # Dafny types `-x` with the type of x, so `-amount` on a nat must be shown to be an
+                # int: `-amount + balance` fails to verify otherwise (found by the evaluation harness)
+                return f"-({text} as int)"
+            if inner[0] in ("bin", "floordiv", "un"):
                 text = f"({text})"
-            return f"-{text}" if e[1] == "-" else f"!{text}"
+            return f"!{text}"
         if kind == "floordiv":
             return self._arith(e[1], e[2], "/", parent_op, right)
         if kind == "bin":

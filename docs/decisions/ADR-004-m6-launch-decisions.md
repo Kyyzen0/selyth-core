@@ -20,6 +20,8 @@ M6 compares arm A (agent + Dafny) with arm B (agent + Dafny + Selyth layer). `co
   - Arm B: agent + same obligations + same Dafny + Selyth layer (evidence report and policy engine).
 - **A0** (the agent writes the specification itself) is excluded from M6. It will be a separate experiment.
 
+> **Terminology.** `docs/evaluation/protocol.md` uses "A0" for *Dafny alone, no obligation attached*, and "A1" for *obligations without the lock*. Here, "A1" names the information condition (same code, obligations and Dafny for both arms), "arm A" corresponds to the protocol's A1 and "arm B" to its B. "A0" in this ADR means *the agent writes the specification*, a different thing from the protocol's A0. Where the two documents disagree on a definition, the protocol governs the harness and this ADR governs the launch parameters.
+
 ### 2. Task set
 
 - 10 tasks, kept secret until launch, totalling about 20 obligations.
