@@ -87,7 +87,7 @@ Four, all borrowed from work that has already documented the failure mode being 
 
 **Held-out obligations.** The evaluated set is frozen and authored by someone other than the evaluating agent. Following Vero, the curator supplies frozen layers and the agent discharges obligations against them.
 
-**Verifier outside the agent's environment.** Berkeley RDI found all eight audited agent benchmarks exploitable precisely because the submission shared the evaluation environment. The rule is absolute: the evaluated system must not read, write or influence the evaluation environment. In V0.1 this is documented as a procedural control, because a single machine cannot provide a security boundary — see `security-model.md`.
+**Verifier outside the agent's environment.** Berkeley RDI found all eight audited agent benchmarks exploitable precisely because the submission shared the evaluation environment. The rule is absolute: the evaluated system must not read, write or influence the evaluation environment. In V0.1 this is documented as a procedural control, because a single machine cannot provide a security boundary — see `security-model.md`. For M6-Lite the exact wording is in ADR-004 section 5: what is not provided to the agent, what it is not given, and why that stays procedural.
 
 **Null-agent floor.** Run an agent that takes no action. Its score is the floor. If it is not zero, the evaluation is broken and the results are discarded.
 
