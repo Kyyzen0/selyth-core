@@ -39,7 +39,7 @@ JSON Schema **cannot** state:
 | The policy digest is the digest of the canonical policy content | **semantic** | policy engine, `INTEGRITY-POLICY-NOT-PINNED` | `tools/test-policy-engine.py` |
 | `rules_evaluated` is the number of rules the engine really evaluated | **semantic** | `policy_engine.replay` (the recorded decision must equal the engine's) | `tools/test-policy-engine.py`, "Replay" |
 | `decision.result` is what the policy yields for the obligations' outcomes and evidence | **semantic** | `policy_engine.replay` | same |
-| The report lists every obligation of the Obligation Set exactly once, with the same id and digest, and names the set digest | **semantic** | `tools/obligation_set.py cover` (`check_coverage`) | `tools/test-obligation-set.py`, "Coverage" |
+| The report lists every obligation of the Obligation Set exactly once, with the same id, digest and echoed fields (`kind`, `statement`, `intent_statement`, `required_evidence_kind`, `affected_components`), and names the set digest | **semantic** | `tools/obligation_set.py cover` (`check_coverage`) | `tools/test-obligation-set.py`, "Coverage" |
 | `obligation_id` values are unique within a report, and within an Obligation Set | **semantic** | `check_coverage` (report), `parse_obligation_set` (set) | same |
 | `min_evidence_kind` compares positions on the evidence lattice, not on JSON enum order | **semantic** | `policy_engine.EVIDENCE_LATTICE` | `tools/test-policy-engine.py`, "Evidence lattice" |
 
