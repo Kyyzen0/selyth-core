@@ -335,6 +335,7 @@ def report_for(document):
                       "specification_version": document["specification_version"],
                       "kind": o["kind"], "statement": o["statement"],
                       "intent_statement": o.get("intent_statement"),
+                      "required_evidence_kind": o["required_evidence_kind"],
                       "affected_components": o["affected_components"]})
         report["obligations"].append(entry)
     for s in report["subject"]:
@@ -387,6 +388,32 @@ def check_coverage():
     case("carries another specification_version",
          lambda r: r["obligations"][2].update(specification_version="1.0.1"),
          "specification_version 1.0.1")
+
+    # The fields a report echoes from the set are compared field by field (the digest binds
+    # them too, but a forged echo must be named, not only hashed away).
+    case("echoes another kind", lambda r: r["obligations"][0].update(kind="invariant"),
+         "obligation OBL-0007: report kind 'invariant' is not the frozen 'postcondition'")
+    case("echoes another statement",
+         lambda r: r["obligations"][0].update(statement="ensures true"),
+         "report statement 'ensures true' is not the frozen")
+    case("echoes another required_evidence_kind",
+         lambda r: r["obligations"][0].update(required_evidence_kind="human-asserted"),
+         "report required_evidence_kind 'human-asserted' is not the frozen 'kernel-proven'")
+    case("echoes another intent_statement",
+         lambda r: r["obligations"][1].update(intent_statement="Whatever the agent likes."),
+         "obligation OBL-0008: report intent_statement")
+    case("echoes other affected_components",
+         lambda r: r["obligations"][2].update(affected_components=["other.ts"]),
+         "obligation OBL-0009: report affected_components")
+
+    swapped = copy.deepcopy(good)
+    swapped["obligations"][2]["affected_components"] = ["drain.ts", "queue.ts"]
+    check(not validate.validate(swapped, schema) and oset.check_coverage(document, swapped) == [],
+          "the order of affected_components in the report is not significant (set semantics)")
+    decomposed = copy.deepcopy(good)
+    decomposed["obligations"][1]["intent_statement"] = "La file ne de\u0301passe jamais sa capacite\u0301."
+    check(not validate.validate(decomposed, schema) and oset.check_coverage(document, decomposed) == [],
+          "a decomposed (non-NFC) spelling of an echoed string is still covered")
 
     def other_set_digest(r):
         for s in r["subject"]:

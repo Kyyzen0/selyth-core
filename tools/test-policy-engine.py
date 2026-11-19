@@ -173,7 +173,7 @@ def check_scenarios():
     changed = copy.deepcopy(document)
     changed["obligations"][0]["statement"] += " && true"
     scenario("the set was edited after the report", policy, stale, changed, "rejected",
-             ["INTEGRITY-COVERAGE"] * 2)
+             ["INTEGRITY-COVERAGE"] * 3)  # set digest, obligation digest, and the echoed statement
 
     heading("Blocks and defaults (fail closed)")
     for outcome, rule in (("failed", "BLOCK-FAILED"),):
@@ -238,13 +238,19 @@ def check_scenarios():
         kind="machine-checked-model", soundness="sound-for-model", semantic_gap="gap"))
     scenario("machine-checked evidence meets a machine-checked requirement", policy, relaxed,
              document, "accepted")
-    scenario("the requirement comes from the set, not from the report's echo", policy,
+    scenario("a forged echo of the set is an integrity failure, not a judged obligation", policy,
              build_report(policy, strict, lambda r: (
                  entry(r, "OBL-0009").update(required_evidence_kind="human-asserted"),
                  entry(r, "OBL-0009")["evidence"].update(
                      kind="machine-checked-model", soundness="sound-for-model",
                      semantic_gap="gap"))), strict, "rejected",
-             ["BLOCK-EVIDENCE-BELOW-REQUIRED"])
+             ["INTEGRITY-COVERAGE"])
+    forged_echo = build_report(policy, strict, lambda r: entry(r, "OBL-0009").update(
+        required_evidence_kind="human-asserted"))
+    d = decide(policy, forged_echo, strict)
+    check(d["rules_evaluated"] == 0 and any("required_evidence_kind" in v["message"]
+                                           for v in d["violations"]),
+          "the forged echo names the field and judges no obligation", f"    {d}")
     forged = build_report(policy, document, lambda r: entry(r, "OBL-0007")["evidence"].update(
         kind="llm-corroborated", soundness="probabilistic",
         model_identity={"name": "m", "version": "1"}))

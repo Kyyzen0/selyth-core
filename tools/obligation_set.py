@@ -136,6 +136,7 @@ def check_coverage(obligation_set, report):
                         f"set digest {expected_set}")
 
     expected = obligation_digests(obligation_set)
+    frozen = {o["obligation_id"]: o for o in canonical_form(obligation_set)["obligations"]}
     entries = report["obligations"]
     seen = Counter(e["obligation_id"] for e in entries)
     for oid in sorted(expected):
@@ -156,6 +157,22 @@ def check_coverage(obligation_set, report):
             problems.append(f"obligation {oid}: specification_version "
                             f"{entry['specification_version']} is not "
                             f"{obligation_set['specification_version']}")
+        # The fields a report echoes from the set. The obligation digest already binds them,
+        # so this cannot catch anything the digest misses; it names a forged echo field by
+        # field instead of only as a digest mismatch.
+        set_obligation = frozen[oid]
+        for field in ("kind", "statement", "required_evidence_kind"):
+            if _nfc(entry[field]) != _nfc(set_obligation[field]):
+                problems.append(f"obligation {oid}: report {field} {entry[field]!r} is not "
+                                f"the frozen {set_obligation[field]!r}")
+        if _nfc(entry.get("intent_statement")) != _nfc(set_obligation.get("intent_statement")):
+            problems.append(f"obligation {oid}: report intent_statement "
+                            f"{entry.get('intent_statement')!r} is not the frozen "
+                            f"{set_obligation.get('intent_statement')!r}")
+        if sorted(_nfc(entry["affected_components"])) != sorted(_nfc(set_obligation["affected_components"])):
+            problems.append(f"obligation {oid}: report affected_components "
+                            f"{entry['affected_components']} are not the frozen "
+                            f"{set_obligation['affected_components']}")
     return problems
 
 

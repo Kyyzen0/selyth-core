@@ -237,6 +237,54 @@ add("policy/loose-suppression", POLICY,
     False, "suppression is the practical path to policy weakening")
 
 
+def cli_checks(tmp):
+    """CLI behaviour of the legacy validator itself: --strict and Draft 2020-12 $ref siblings."""
+    failures = []
+
+    def run(*args):
+        return subprocess.run([sys.executable, str(TOOL), *args], capture_output=True, text=True)
+
+    def expect(ok, label, detail=""):
+        print(f"[{'ok  ' if ok else 'FAIL'}] {label}")
+        if not ok:
+            failures.append((label, "cli", detail))
+        return ok
+
+    # --strict reports keywords this validator does not implement.
+    typo = tmp / "typo-schema.json"
+    typo.write_text(json.dumps({"$schema": "https://json-schema.org/draft/2020-12/schema",
+                                "type": "object",
+                                "properties": {"a": {"type": "integer", "minimu": 3}}}), encoding="utf-8")
+    inst = tmp / "inst.json"
+    inst.write_text('{"a": 1}', encoding="utf-8")
+    r = run(str(typo), str(inst))
+    expect(r.returncode == 0, "cli: an unknown keyword is ignored without --strict", r.stdout)
+    r = run("--strict", str(typo), str(inst))
+    expect(r.returncode == 1 and "minimu" in r.stdout,
+           "cli: --strict fails and names the unknown keyword", r.stdout)
+
+    # Draft 2020-12: a $ref applies alongside its siblings, it does not replace them.
+    sibling = tmp / "sibling-schema.json"
+    sibling.write_text(json.dumps({"$schema": "https://json-schema.org/draft/2020-12/schema",
+                                  "$defs": {"n": {"type": "integer"}},
+                                  "$ref": "#/$defs/n", "minimum": 5}), encoding="utf-8")
+    low = tmp / "low.json"
+    low.write_text("3", encoding="utf-8")
+    high = tmp / "high.json"
+    high.write_text("7", encoding="utf-8")
+    r = run(str(sibling), str(low))
+    expect(r.returncode == 1 and "minimum" in r.stdout,
+           "cli: a keyword next to $ref is applied (3 < minimum 5 fails)", r.stdout)
+    r = run(str(sibling), str(high))
+    expect(r.returncode == 0, "cli: $ref and its sibling are both satisfied (7)", r.stdout)
+    dangling = tmp / "dangling-schema.json"
+    dangling.write_text(json.dumps({"$ref": "#/$defs/missing"}), encoding="utf-8")
+    r = run(str(dangling), str(high))
+    expect(r.returncode == 1 and "unresolvable $ref" in r.stdout,
+           "cli: an unresolvable $ref is still refused", r.stdout)
+    return failures
+
+
 def main():
     tmp = Path(tempfile.mkdtemp(prefix="selyth-schema-"))
     failures, unknown_kw = [], set()
@@ -257,10 +305,11 @@ def main():
         print(f"[{mark}] {name:44s} expected={'PASS' if must_pass else 'FAIL':4s} "
               f"got={'PASS' if got_pass else 'FAIL'}")
 
+    cli_failures = cli_checks(tmp)
     print(f"\n{len(CASES) - len(failures)}/{len(CASES)} as expected")
-    for n, why, out in failures:
+    for n, why, out in failures + cli_failures:
         print(f"\n--- {n} ({why})\n{out}")
-    return 1 if failures else 0
+    return 1 if failures or cli_failures else 0
 
 
 if __name__ == "__main__":

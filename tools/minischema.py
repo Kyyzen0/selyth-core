@@ -5,8 +5,10 @@ enum, const, pattern, minItems, minimum, allOf, if/then/else, $ref->#/$defs.
 
 Deliberately scoped: it is a verification tool for these two schemas, not a
 general-purpose validator. Unknown keywords are ignored rather than silently
-treated as satisfied-by-default; `--strict` reports them so a schema can never
-quietly rely on a construct this file does not implement.
+treated as satisfied-by-default; `--strict` reports them as failures so a schema
+can never quietly rely on a construct this file does not implement. Under Draft
+2020-12 a `$ref` applies alongside its siblings, it does not replace them, and
+this validator follows that.
 """
 import json
 import re
@@ -36,7 +38,7 @@ def _is_type(v, t):
     return isinstance(v, TYPES[t])
 
 
-def validate(inst, schema, root=None, path="$", errs=None, strict=False, unknown=None):
+def validate(inst, schema, root=None, path="$", errs=None, unknown=None):
     root = root or schema
     errs = errs if errs is not None else []
     if unknown is None:
@@ -56,8 +58,9 @@ def validate(inst, schema, root=None, path="$", errs=None, strict=False, unknown
             if target is None:
                 errs.append(f"{path}: unresolvable $ref {ref}")
             else:
-                validate(inst, target, root, path, errs, strict, unknown)
-        return errs
+                validate(inst, target, root, path, errs, unknown)
+        # Draft 2020-12: $ref no longer overrides its siblings; the rest of this
+        # schema object applies too, so execution falls through instead of returning.
 
     if "type" in schema:
         ts = schema["type"] if isinstance(schema["type"], list) else [schema["type"]]
@@ -91,44 +94,49 @@ def validate(inst, schema, root=None, path="$", errs=None, strict=False, unknown
         props = schema.get("properties", {})
         for k, v in inst.items():
             if k in props:
-                validate(v, props[k], root, f"{path}.{k}", errs, strict, unknown)
+                validate(v, props[k], root, f"{path}.{k}", errs, unknown)
             elif schema.get("additionalProperties") is False:
                 errs.append(f"{path}: additional property {k!r} not allowed")
             elif isinstance(schema.get("additionalProperties"), dict):
                 validate(v, schema["additionalProperties"], root, f"{path}.{k}",
-                         errs, strict, unknown)
+                         errs, unknown)
         if "propertyNames" in schema:
             for k in inst:
                 validate(k, schema["propertyNames"], root, f"{path}.{k}(name)",
-                         errs, strict, unknown)
+                         errs, unknown)
 
     if isinstance(inst, list) and "items" in schema:
         for i, v in enumerate(inst):
-            validate(v, schema["items"], root, f"{path}[{i}]", errs, strict, unknown)
+            validate(v, schema["items"], root, f"{path}[{i}]", errs, unknown)
 
     for sub in schema.get("allOf", []):
-        validate(inst, sub, root, path, errs, strict, unknown)
+        validate(inst, sub, root, path, errs, unknown)
 
     if "if" in schema:
         cond = []
-        validate(inst, schema["if"], root, path, cond, strict, unknown)
+        validate(inst, schema["if"], root, path, cond, unknown)
         branch = "then" if not cond else "else"
         if branch in schema:
-            validate(inst, schema[branch], root, path, errs, strict, unknown)
+            validate(inst, schema[branch], root, path, errs, unknown)
 
     return errs
 
 
 def main():
-    if len(sys.argv) < 3:
-        print("usage: minischema.py <schema.json> <instance.json> [...]")
+    args = sys.argv[1:]
+    strict = "--strict" in args
+    args = [a for a in args if a != "--strict"]
+    if len(args) < 2:
+        print("usage: minischema.py [--strict] <schema.json> <instance.json> [...]")
         return 2
-    schema = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+    schema = json.loads(Path(args[0]).read_text(encoding="utf-8"))
     rc = 0
-    for f in sys.argv[2:]:
+    for f in args[1:]:
         inst = json.loads(Path(f).read_text(encoding="utf-8"))
         unknown = set()
         errs = validate(inst, schema, unknown=unknown)
+        if strict:
+            errs = errs + sorted(unknown)
         status = "PASS" if not errs else "FAIL"
         print(f"[{status}] {f}")
         for e in errs:

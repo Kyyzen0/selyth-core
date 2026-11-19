@@ -71,8 +71,9 @@ Coverage compares two documents, so it is semantic validation (see [`validation-
 2. Every obligation of the set appears in the report **exactly once**, matched by `obligation_id`.
 3. The report contains no obligation absent from the set.
 4. For each matched obligation, `obligation_digest` equals the obligation digest and `specification_version` equals the set's.
+5. For each matched obligation, every field the report echoes from the set — `kind`, `statement`, `intent_statement`, `required_evidence_kind`, `affected_components` — equals the set's (strings compared after NFC; `affected_components` compared as a set, order-free). The obligation digest already binds these fields, so this rule cannot catch anything the digest misses; it exists so that a forged echo is named field by field instead of only as a digest mismatch.
 
-An obligation that was not run still appears in the report, with outcome `not-run`: omission is never a way to skip. Fields a report echoes from the set (`statement`, `kind`, `required_evidence_kind`, `intent_statement`, `affected_components`) are not compared yet: the digest binds them, so a mismatch is a lie about what was checked, but detecting it needs the report-building code of task 3.
+An obligation that was not run still appears in the report, with outcome `not-run`: omission is never a way to skip.
 
 ## Not covered here
 
