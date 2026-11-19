@@ -55,11 +55,20 @@ jobs:
         run: |
           curl -fsSL -o dafny.zip \
             https://github.com/dafny-lang/dafny/releases/download/v4.11.0/dafny-4.11.0-x64-ubuntu-22.04.zip
-          mkdir -p "$HOME/.local/opt/dafny"
-          unzip -q dafny.zip -d "$HOME/.local/opt/dafny"
-          if compgen -G "$HOME/.local/opt/dafny/dafny-*" > /dev/null; then
-            mv "$HOME/.local/opt/dafny"/dafny-*/* "$HOME/.local/opt/dafny/"
+          unzip -q dafny.zip -d dafny-extract
+          # The zip layout varies; what the backend needs is one directory holding
+          # both the `dafny` executable and its `z3/` tree. Find it, don't guess it.
+          DAFNY_HOME=""
+          for d in $(find dafny-extract -type d -name z3 -printf '%h\n'); do
+            if [ -f "$d/dafny" ]; then DAFNY_HOME="$d"; break; fi
+          done
+          if [ -z "$DAFNY_HOME" ]; then
+            echo "no dafny executable next to a z3/ tree in the archive:" >&2
+            find dafny-extract -maxdepth 3 | head -30 >&2
+            exit 1
           fi
+          mkdir -p "$HOME/.local/opt/dafny"
+          cp -a "$DAFNY_HOME/." "$HOME/.local/opt/dafny/"
           chmod +x "$HOME/.local/opt/dafny/dafny"
           # GITHUB_PATH only applies to later steps; use the absolute path here.
           echo "$HOME/.local/opt/dafny" >> "$GITHUB_PATH"
