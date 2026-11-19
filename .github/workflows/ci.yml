@@ -12,7 +12,9 @@ on:
 
 jobs:
   test-python:
-    runs-on: ubuntu-latest
+    # ubuntu-24.04, not latest: latest is 26.04, which no longer ships Python 3.9
+    # (the oldest interpreter the project supports).
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -26,7 +28,7 @@ jobs:
         run: make test-python
 
   test-ts:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -39,7 +41,7 @@ jobs:
         run: make test-ts
 
   test-dafny:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -59,8 +61,9 @@ jobs:
             mv "$HOME/.local/opt/dafny"/dafny-*/* "$HOME/.local/opt/dafny/"
           fi
           chmod +x "$HOME/.local/opt/dafny/dafny"
+          # GITHUB_PATH only applies to later steps; use the absolute path here.
           echo "$HOME/.local/opt/dafny" >> "$GITHUB_PATH"
-          dafny --version
+          "$HOME/.local/opt/dafny/dafny" --version
           ls "$HOME/.local/opt/dafny/z3/bin/"
       - name: make test-dafny test-eval
         run: make test-dafny test-eval
