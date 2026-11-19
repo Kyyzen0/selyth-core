@@ -1,0 +1,66 @@
+# CI for Selyth Core: everything the Makefile can run, on every push and PR.
+#   test-python   all Python suites, on every supported interpreter (>= 3.9)
+#   test-ts       the TypeScript port, byte-compared against the Python adapter (Node >= 24)
+#   test-dafny    the Dafny backend and the M5/M6 harnesses against a real Dafny 4.11.0
+#                 with its bundled z3 4.12.1 (the versions the backend pins)
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test-python:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: make test-python
+        run: make test-python
+
+  test-ts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: make test-ts
+        run: make test-ts
+
+  test-dafny:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install the pinned Dafny 4.11.0 (bundled z3 4.12.1) where the backend looks for it
+        run: |
+          curl -fsSL -o dafny.zip \
+            https://github.com/dafny-lang/dafny/releases/download/v4.11.0/dafny-4.11.0-x64-ubuntu-22.04.zip
+          mkdir -p "$HOME/.local/opt/dafny"
+          unzip -q dafny.zip -d "$HOME/.local/opt/dafny"
+          if compgen -G "$HOME/.local/opt/dafny/dafny-*" > /dev/null; then
+            mv "$HOME/.local/opt/dafny"/dafny-*/* "$HOME/.local/opt/dafny/"
+          fi
+          chmod +x "$HOME/.local/opt/dafny/dafny"
+          echo "$HOME/.local/opt/dafny" >> "$GITHUB_PATH"
+          dafny --version
+          ls "$HOME/.local/opt/dafny/z3/bin/"
+      - name: make test-dafny test-eval
+        run: make test-dafny test-eval

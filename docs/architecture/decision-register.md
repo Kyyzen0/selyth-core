@@ -30,6 +30,7 @@
 | D-09 | Bind to content digests, never to branches | A result applied to changed code is not a result | in-toto / SLSA convention |
 | D-10 | Suppression is `forbidden` in V0.1 | Suppression is the practical path to policy weakening; nothing is lost by starting without it | `policy-schema.json` |
 | D-11 | M6-Lite launch parameters fixed before any run: Claude Code, `claude-sonnet-4-6`, condition A1, 6 tasks, 12 agent runs (1 per arm and task), 20 minutes and 15 model calls per run, €0 marginal budget, procedural isolation, evaluator in a separate private repo. The full 60-run M6 is a distinct future evaluation | Decisions taken before seeing results cannot be tuned to them | ADR-004 |
+| D-12 | MIT licence for Core, with a completed permissive-licence audit of every pinned dependency | €0 single-maintainer constraint (manifesto principles 8, 11); all pinned dependencies are permissive | ADR-005 |
 
 ### PROPOSED — recommended, awaiting named validation
 
