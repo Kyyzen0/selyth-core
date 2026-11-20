@@ -13,15 +13,21 @@ ships Python 3.9, the oldest interpreter the project supports).
 
 ## Quickstart: Docker on an always-on Mac (or any always-on Linux box)
 
-Keep the runner directory **outside the repository** so the token never lands in git:
+On a Mac, run the runner **in Docker** — the runner binary itself is a Linux binary and
+will not execute natively on macOS (`cannot execute binary file`); the container runs it
+for you. Keep the runner directory **outside the repository** so the token never lands
+in git:
 
 ```sh
-mkdir ~/selyth-runner && cd ~/selyth-runner
+rm -rf ~/selyth-runner/actions-runner   # if you downloaded a bare-metal tarball by mistake
+mkdir -p ~/selyth-runner && cd ~/selyth-runner
 cp <repo>/docs/operations/runner/Dockerfile <repo>/docs/operations/runner/docker-compose.yml .
-# GitHub page of the repo: Settings -> Actions -> Runners -> New self-hosted runner -> Linux.
-# Copy the registration token it shows (valid 1 hour, used once):
+# GitHub page of the repo: Settings -> Actions -> Runners -> New self-hosted runner -> LINUX tab
+# (the container is Linux, even on a Mac). Copy the registration token it shows (valid
+# 1 hour, used once, never commit it or paste it anywhere):
 echo 'RUNNER_TOKEN=<token>' > .env && chmod 600 .env
 docker compose up -d --build
+docker logs -f selyth-runner            # wait for "Listening for Jobs"
 ```
 
 That's it: the container registers itself (default labels `self-hosted`, `Linux`,
@@ -63,7 +69,7 @@ repo runs docker.
   `concurrency: cancel-in-progress` cancels superseded runs so the runner never works
   on stale commits.
 
-## Bare-metal fallback (no Docker)
+## Bare-metal fallback (Linux only — on macOS use the Docker quickstart above)
 
 On any Linux box, as a dedicated unprivileged user:
 
@@ -73,9 +79,13 @@ curl -fsSL -o actions-runner.tar.gz \
   https://github.com/actions/runner/releases/download/v2.338.2/actions-runner-linux-x64-2.338.2.tar.gz
 tar xzf actions-runner.tar.gz
 ./config.sh --url https://github.com/Kyyzen0/selyth-core --labels self-hosted,linux --ephemeral --unattended
-# paste the token from Settings -> Actions -> Runners -> New self-hosted runner
+# paste the token from Settings -> Actions -> Runners -> New self-hosted runner -> Linux
 ./run.sh            # foreground; or: sudo ./svc.sh install <user> && sudo ./svc.sh start
 ```
 
 (`--ephemeral` = one job then auto-unregister; wrap `./run.sh` in a `while true` loop
-or use the service mode for continuous availability.)
+or use the service mode for continuous availability. On macOS bare-metal, the equivalent
+tarball is `actions-runner-osx-arm64-2.338.2.tar.gz` (Apple Silicon) or
+`actions-runner-osx-x64-2.338.2.tar.gz` (Intel), and the workflow's `[self-hosted, linux]`
+label would need `macos` instead — which is exactly why the Docker route is recommended
+on a Mac.)
