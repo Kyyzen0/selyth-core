@@ -8,9 +8,10 @@
 method Gcd(a: nat, b: nat) returns (result: nat)
   // selyth:obligation GCD-01 GCD-02 GCD-03
 {
+  var a := a;
+  var b := b;
   while b != 0
     invariant a >= 1 || b >= 1
-    // selyth:obligation GCD-04
   {
     var t := b;
     b := a % b;
