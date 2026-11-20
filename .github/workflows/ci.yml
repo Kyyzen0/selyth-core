@@ -9,23 +9,12 @@ on:
   push:
     branches: [main]
   pull_request:
-  workflow_dispatch:   # manual retrigger, e.g. when runner-side PR checkouts fail
 
-# One run per ref at a time: a superseded push cancels the queued/running one,
-# so the runner never burns time on stale commits.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-# Guard: this repo is private and the self-hosted runner (infra/ci-runner/) must never
-# execute fork PRs. Private repo AND (push/dispatch OR PR whose head is not a fork).
 jobs:
   test-python:
-    # The kut-ci self-hosted runner (infra/ci-runner/): consumes no GitHub-hosted minutes,
-    # which are exhausted for this private repo. Switch back to `ubuntu-24.04` (not
-    # `latest`: 26.04 no longer ships Python 3.9) when hosted minutes are available again.
-    if: github.event.repository.private && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork)
-    runs-on: [self-hosted, linux, kut-ci]
+    # ubuntu-24.04, not latest: latest is 26.04, which no longer ships Python 3.9
+    # (the oldest interpreter the project supports).
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -39,8 +28,7 @@ jobs:
         run: make test-python
 
   test-ts:
-    if: github.event.repository.private && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork)
-    runs-on: [self-hosted, linux, kut-ci]
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -55,8 +43,7 @@ jobs:
         run: make test-properties
 
   test-dafny:
-    if: github.event.repository.private && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork)
-    runs-on: [self-hosted, linux, kut-ci]
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
