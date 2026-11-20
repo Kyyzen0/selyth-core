@@ -74,5 +74,8 @@ jobs:
           echo "$HOME/.local/opt/dafny" >> "$GITHUB_PATH"
           "$HOME/.local/opt/dafny/dafny" --version
           ls "$HOME/.local/opt/dafny/z3/bin/"
-      - name: make test-dafny test-eval bench
-        run: make test-dafny test-eval bench
+      - name: make test-dafny test-eval, then bench the ledger and the third-party gcd
+        run: |
+          make test-dafny test-eval
+          make bench
+          make bench EXAMPLE=gcd

@@ -84,6 +84,20 @@ module of this size:
   `BLOCK-COST-BUDGET` violation. Recording `peak_rss_bytes` (e.g. from the child process's
   `ru_maxrss`) is the follow-up that would make that ceiling usable.
 
+## Third-party code: the gcd example
+
+`make bench EXAMPLE=gcd` runs the same measurement on the third-party module
+(`docs/specifications/examples/gcd/`, `gcd` from `pallosp/congruence_solver`, MIT): 4
+obligations on a loop with an invariant, versus 20 on the hand-written ledger.
+
+<!-- Filled from the CI run (`make bench EXAMPLE=gcd`): per-obligation resource_units /
+     wall_ms, totals, and the comparison with the ledger per obligation and per line. -->
+
+| Module | obligations | resource_units total | wall_ms total | resource_units / obligation | lines of TS |
+|---|---|---|---|---|---|
+| ledger (hand-written) | 20 | 1 281 714 | 17 699 | ~64 086 | 52 |
+| gcd (third-party) | 4 | *(pending CI)* | *(pending CI)* | *(pending CI)* | 10 |
+
 ## Limits
 
 - One module, one machine, one tool build. Dafny's solver is seed-dependent (R7: one measured

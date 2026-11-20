@@ -6,7 +6,9 @@
 #   make test-dafny               Dafny backend against a real Dafny 4.11.0 (SELYTH_DAFNY=<path> if not at ~/.local/opt/dafny/dafny)
 #   make test-eval                evaluation harness (M6) on its scripted corpus: needs Dafny and Node, about five minutes
 #   make test-ts                  TypeScript port only (needs Node >= 24; NODE_BIN=<dir> if not on PATH)
-#   make bench                    measure the gate's cost on the ledger example: per-obligation table + bench report (needs Dafny)
+#   make bench [EXAMPLE=gcd]      measure the gate's cost on an example (default ledger): per-obligation
+#                                 table + bench report (needs Dafny)
+#   make gcd-workspace            regenerate the gcd example's Dafny model from gcd.ts
 #   make test PYTHON=python3.12   use another interpreter (>= 3.9) for the venv
 #   make clean                    delete the venv
 PYTHON ?= python3
@@ -16,7 +18,7 @@ VPY    := $(VENV)/bin/python
 NODE_BIN ?=
 export PATH := $(if $(NODE_BIN),$(NODE_BIN):)$(PATH)
 
-.PHONY: test test-python test-dafny test-ts test-eval bench ledger-workspace venv clean
+.PHONY: test test-python test-dafny test-ts test-eval bench ledger-workspace gcd-workspace venv clean
 
 test: test-python test-dafny test-ts test-eval
 
@@ -60,10 +62,17 @@ test-dafny: venv
 	@echo
 	@echo "== The ledger: twenty obligations on a small module, with a mutation study"
 	$(VPY) tools/test-ledger.py
+	@echo
+	@echo "== The gcd: third-party code (pallosp/congruence_solver, MIT) through the whole gate"
+	$(VPY) tools/test-gcd.py
 
 # Regenerate the ledger's Dafny model from ledger.ts (test-ts-to-dafny.py fails if it is stale).
 ledger-workspace: venv
 	$(VPY) tools/ts_to_dafny.py docs/specifications/examples/ledger/ledger.ts --spec docs/specifications/examples/ledger/ledger.translation.json -o docs/specifications/examples/ledger/ledger.workspace.dfy
+
+# Same for the third-party gcd example (test-gcd.py fails if the workspace is stale).
+gcd-workspace: venv
+	$(VPY) tools/ts_to_dafny.py docs/specifications/examples/gcd/gcd.ts --spec docs/specifications/examples/gcd/gcd.translation.json -o docs/specifications/examples/gcd/gcd.workspace.dfy
 
 # The TypeScript port is checked against the Python adapter, so it needs the venv too.
 test-ts: venv
@@ -75,13 +84,15 @@ test-eval: venv
 	@command -v node >/dev/null || { echo "Node >= 24 not found: install it or pass NODE_BIN=<dir with node>"; exit 1; }
 	$(VPY) tools/test-evaluate.py
 
-# Measure the gate's cost on the ledger example (E-05/P-01/F1): a table on stdout,
-# the bench report JSON after it. Needs a real Dafny, like test-dafny.
+# Measure the gate's cost on an example (default ledger, EXAMPLE=gcd for the third-party one;
+# E-05/P-01/F1): a table on stdout, the bench report JSON after it. Needs a real Dafny.
+EXAMPLE ?= ledger
+EXDIR   := docs/specifications/examples/$(EXAMPLE)
 bench: venv
-	$(VPY) tools/bench.py --obligation-set docs/specifications/examples/ledger/ledger.obligations.json \
-	    --policy docs/specifications/examples/ledger/ledger.policy.json \
-	    --lock docs/specifications/examples/ledger/ledger.lock.json \
-	    --workspace docs/specifications/examples/ledger/ledger.workspace.dfy
+	$(VPY) tools/bench.py --obligation-set $(EXDIR)/$(EXAMPLE).obligations.json \
+	    --policy $(EXDIR)/$(EXAMPLE).policy.json \
+	    --lock $(EXDIR)/$(EXAMPLE).lock.json \
+	    --workspace $(EXDIR)/$(EXAMPLE).workspace.dfy
 
 clean:
 	rm -rf $(VENV) ts/node_modules

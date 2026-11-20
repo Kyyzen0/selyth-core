@@ -1,0 +1,20 @@
+{
+  "policy_version": "0.1.0",
+  "policy_id": "policy-gcd",
+  "title": "Gcd acceptance policy",
+  "description": "Every obligation needs machine-checked evidence at least as strong as the Obligation Set requires; anything else is rejected.",
+  "approved_by": "project-owner",
+  "approval": "git-signed-commit",
+  "rules": [
+    {
+      "rule_id": "RULE-MACHINE-CHECKED",
+      "rationale": "The gcd is core domain logic of the example: only machine-checked evidence may accept an obligation.",
+      "applies_to": { "all_obligations": true },
+      "requires": { "min_evidence_kind": "machine-checked-model" },
+      "action": "accept"
+    }
+  ],
+  "suppression": { "mode": "forbidden", "requires_human_approval": true, "recorded_in_report": true },
+  "on_unknown_evidence": "reject",
+  "on_timeout": "reject"
+}
