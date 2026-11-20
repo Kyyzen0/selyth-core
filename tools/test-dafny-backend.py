@@ -369,8 +369,26 @@ def check_pipeline(dafny, solver, version):
         check(subprocess.run(args, capture_output=True, text=True).returncode == 2, "CLI: a missing Dafny exits 2")
 
 
+def check_cli_usage():
+    """argparse rejects bad usage before any Dafny call, so this needs no Dafny."""
+    heading("CLI usage errors (argparse)")
+    tool = str(TOOLS / "dafny_backend.py")
+
+    def run(*args):
+        return subprocess.run([sys.executable, tool, *args], capture_output=True, text=True).returncode
+
+    check(run("verify") == 2, "verify without options exits 2")
+    check(run("verify", "--ir", "x.json") == 2, "missing required options exit 2")
+    check(run("bogus") == 2, "an unknown command exits 2")
+    base = ("verify", "--ir", "x", "--workspace", "y", "--obligation-set", "z", "--policy", "w")
+    check(run(*base, "--resource-limit", "abc") == 2, "a non-integer --resource-limit exits 2")
+    check(run(*base, "--time-limit", "0") == 2, "a zero --time-limit exits 2 (limits are positive)")
+    check(run(*base, "--time-limit=-5") == 2, "a negative --time-limit in equals form exits 2")
+
+
 def main():
     check_units()
+    check_cli_usage()
     try:
         dafny = locate_dafny()
         version, solver = backend.tool_versions(dafny)

@@ -67,7 +67,7 @@ Row 6 enforces `cost_budget` (`policy-schema.json`), the ceilings that keep the 
 Rules are tried in order; the first that decides ends the obligation.
 
 - **Selection.** `applies_to` selectors are conjunctive: `obligation_kinds` (the obligation's kind is listed), `paths` (an affected component starts with a listed prefix; advisory, see the security model), `all_obligations: true` (always). `all_obligations: false` selects nothing by itself; a rule with no selector never applies. Kinds and components come from the Obligation Set.
-- **Requirements.** `min_evidence_kind` (lattice position); `requires_intent_corroboration` (the evidence kind is `llm-corroborated`: the only signal a one-evidence-per-obligation report can carry); `non_empty_assumptions` (read literally: the evidence lists at least one assumption; this reading is flagged as doubtful in the policy schema).
+- **Requirements.** `min_evidence_kind` (lattice position); `requires_intent_corroboration` (the evidence kind must be `llm-corroborated`; because a report carries exactly one evidence entry per obligation, this is never satisfied by a formal proof — the flag works only as a `reject`/`escalate` guard, never as an `accept` condition); `non_empty_assumptions` (read literally, fail closed: the evidence must list at least one assumption. Deliberate choice: a proof that declares no premise is exactly the one that later turns out false, so a policy that wants it strict sets the flag; V0.1 policies keep it off because most real proofs carry an empty list, and a future report version could distinguish "no assumptions" from "assumptions not recorded").
 - **Action.** `accept` decides only when its requirements are met, and otherwise passes to the next rule. `reject` and `escalate` are guards: they decide when their requirements are **not** met, and otherwise pass. This is the reading under which the example policy makes sense (an `escalate` rule requiring intent corroboration escalates what lacks it).
 - **No rule decides** → violation `DEFAULT-NO-RULE-DECIDES`. A policy that does not cover an obligation never accepts it.
 
@@ -81,6 +81,6 @@ Outcome `passed` is the empirical counterpart of `proven`: a property test, a ru
 
 ## What this version cannot do
 
-- `requires_intent_corroboration` can never be met together with a proof, for the same reason (one evidence entry per obligation); an `escalate` guard on it fires for every obligation it reaches.
-- `non_empty_assumptions` is read literally: the evidence lists at least one assumption.
+- `requires_intent_corroboration` can never be met together with a proof (one evidence entry per obligation): it is a guard, never an accept condition.
+- `non_empty_assumptions` is read literally and fails closed; V0.1 policies keep the flag off. A report version distinguishing an empty assumption list from undeclared assumptions would make the strict reading usable.
 - `fast_wall_ms` is a target, not a block (row 6); `suppression.requires_human_approval` is procedural — the waiver id records an approval the engine cannot verify.

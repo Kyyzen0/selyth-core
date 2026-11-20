@@ -14,6 +14,7 @@ Usage:
 Prints the report. Exit status: 0 accepted, 1 rejected, 3 needs-human,
 2 usage error, unreadable input, or a tool that is not the declared one.
 """
+import argparse
 import csv
 import hashlib
 import json
@@ -374,55 +375,58 @@ def build_report(ir, obligation_set, policy, workspace_bytes, workspace_name, pr
     return report
 
 
-def parse_args(argv):
-    options = {"--dafny": None, "--resource-limit": str(DEFAULT_RESOURCE_LIMIT),
-               "--time-limit": str(DEFAULT_TIME_LIMIT), "--produced-at": None, "--lock": None}
-    required = {"--ir": None, "--workspace": None, "--obligation-set": None, "--policy": None}
-    if len(argv) < 2 or argv[1] != "verify":
-        raise ValueError("usage")
-    args = argv[2:]
-    if len(args) % 2:
-        raise ValueError("usage")
-    for flag, value in zip(args[::2], args[1::2]):
-        if flag in required:
-            required[flag] = value
-        elif flag in options:
-            options[flag] = value
-        else:
-            raise ValueError("usage")
-    if any(v is None for v in required.values()):
-        raise ValueError("usage")
-    return required, options
+def _positive_int(text):
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected an integer, got {text!r}") from None
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"expected a positive integer, got {value}")
+    return value
+
+
+def build_parser():
+    ap = argparse.ArgumentParser(prog="dafny_backend.py",
+                                 description=__doc__.split("Usage:")[0].strip())
+    sub = ap.add_subparsers(dest="command", required=True)
+    verify = sub.add_parser("verify", help="IR + proof workspace + Obligation Set + policy -> report")
+    verify.add_argument("--ir", required=True, help="the Verification IR (JSON)")
+    verify.add_argument("--workspace", required=True, help="the Dafny proof workspace (.dfy)")
+    verify.add_argument("--obligation-set", required=True, dest="obligation_set")
+    verify.add_argument("--policy", required=True)
+    verify.add_argument("--lock", help="the human-approved lock")
+    verify.add_argument("--dafny", help="path to the dafny executable (or set SELYTH_DAFNY)")
+    verify.add_argument("--resource-limit", type=_positive_int, default=DEFAULT_RESOURCE_LIMIT,
+                        help=f"solver resource limit per obligation (default {DEFAULT_RESOURCE_LIMIT})")
+    verify.add_argument("--time-limit", type=_positive_int, default=DEFAULT_TIME_LIMIT,
+                        help=f"verification time limit per obligation, seconds (default {DEFAULT_TIME_LIMIT})")
+    verify.add_argument("--produced-at", help="RFC3339 timestamp recorded in the report (default: now)")
+    return ap
 
 
 def main(argv):
+    args = build_parser().parse_args(argv[1:])
     try:
-        required, options = parse_args(argv)
-        resource_limit, time_limit = int(options["--resource-limit"]), int(options["--time-limit"])
-    except ValueError:
-        print(__doc__.strip().split("Usage:")[1].split("Prints")[0].rstrip())
-        return 2
-    try:
-        ir = validate.load_json(required["--ir"])
+        ir = validate.load_json(args.ir)
         problems = validate.validate(ir, validate.load_schema(
             oset.ROOT / "docs" / "specifications" / "verification-ir-schema.json"))
         if problems:
             raise BackendError("the IR is not valid: " + "; ".join(f"{p.path}: {p.message}" for p in problems))
-        document = oset.load_obligation_set(required["--obligation-set"])
-        policy = validate.load_json(required["--policy"])
+        document = oset.load_obligation_set(args.obligation_set)
+        policy = validate.load_json(args.policy)
         if validate.validate(policy, validate.load_schema(oset.ROOT / "docs" / "specifications" / "policy-schema.json")):
             raise BackendError("the policy is not valid against policy-schema.json")
-        lock = engine.load_lock(options["--lock"]) if options["--lock"] else None
-        dafny = resolve_dafny(options["--dafny"])
+        lock = engine.load_lock(args.lock) if args.lock else None
+        dafny = resolve_dafny(args.dafny)
         version, solver = tool_versions(dafny)
         if ir["backend"] != {"name": BACKEND_NAME, "version": version}:
             raise BackendError(f"the IR targets {ir['backend']['name']} {ir['backend']['version']} "
                                f"but the installed tool is {BACKEND_NAME} {version}")
-        workspace = Path(required["--workspace"])
+        workspace = Path(args.workspace)
         report = build_report(
             ir, document, policy, workspace.read_bytes(), workspace.name,
-            options["--produced-at"] or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            dafny, solver, version, resource_limit, time_limit, lock)
+            args.produced_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            dafny, solver, version, args.resource_limit, args.time_limit, lock)
     except (BackendError, oset.ObligationSetError, validate.SchemaError, OSError,
             json.JSONDecodeError, subprocess.SubprocessError, UnicodeDecodeError) as exc:
         print(f"[ERROR] {exc}", file=sys.stderr)
