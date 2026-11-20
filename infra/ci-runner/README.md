@@ -72,6 +72,14 @@ Settings → Billing → Actions → 0 minute hébergée consommée.
 - **Apple Silicon** : l'image est épinglée `platform: linux/amd64` parce que Dafny 4.11.0
   n'existe qu'en x64 pour Linux ; sur Mac arm64 le conteneur tourne via l'émulation qemu de
   Docker Desktop (un peu plus lent, mais le binaire Dafny x64 fonctionne).
+- **Jeton expiré = 404 « runner-registration » en boucle** : le jeton vaut 1 h. Si
+  `config.sh` répond `Http response code: NotFound ... /actions/runner-registration`, le
+  jeton est invalide/expiré et le conteneur boucle (`exited with code 1 (restarting)`).
+  Correctif (aucun job n'est en cours, donc la recréation est sûre) :
+  `docker compose down`, générer un **nouveau** jeton dans l'UI (onglet Linux — chaque
+  clic en génère un nouveau), `read -s RUNNER_TOKEN` + `export RUNNER_TOKEN`, puis
+  `docker compose up -d` (image déjà buildée, pas besoin de `--build`) et
+  `docker compose logs -f runner`.
 
 ## Ré-enregistrement from scratch
 
