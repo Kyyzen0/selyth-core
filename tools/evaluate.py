@@ -25,6 +25,11 @@ wrote them, and what a real agent would submit is exactly what M6 has to find ou
                                                                   run the corpus, print the summary;
                                                                   DIR holds agent_runner.py run records
                                                                   (model-call counts per task)
+                  run ... --manifest corpus.json [--manifest-digest sha256:...]
+                                                                  verify the frozen M6-Lite corpus first
+                                                                  (tools/launch_gate.py: schema, artefact
+                                                                  digests, minimums, control plan, digest)
+                                                                  and refuse (exit 2) if anything fails
   evaluate.py report results.json                             print the summary of a saved run
 """
 import argparse
@@ -41,6 +46,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import dafny_backend as backend
+import launch_gate
 import obligation_set as oset
 import policy_engine as engine
 import ts_adapter as adapter
@@ -344,12 +350,20 @@ def main(argv=None):
     r.add_argument("--tasks", default=str(DEFAULT_TASKS))
     r.add_argument("--jobs", type=int, default=1)
     r.add_argument("--runs", help="directory of agent_runner.py run records (model-call counts)")
+    r.add_argument("--manifest", help="frozen M6-Lite corpus manifest; verified by launch_gate before any run")
+    r.add_argument("--manifest-digest", help="the digest the frozen manifest must carry")
     r.add_argument("-o", "--output")
     p = sub.add_parser("report")
     p.add_argument("results")
     args = ap.parse_args(argv)
     try:
         if args.command == "run":
+            if args.manifest:
+                problems = launch_gate.verify(args.manifest, expected_digest=args.manifest_digest)
+                if problems:
+                    for p in problems:
+                        print(f"evaluate: launch refused: {p}", file=sys.stderr)
+                    return 2
             result = run(Path(args.tasks), args.jobs, runs_dir=args.runs)
             if args.output:
                 Path(args.output).write_bytes((json.dumps(result, indent=2, sort_keys=True) + "\n").encode("utf-8"))

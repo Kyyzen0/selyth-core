@@ -49,6 +49,12 @@ test-python: venv
 	@echo "== M6-Lite agent runner: model-call counting proxy, budgets, launch gate"
 	$(VPY) tools/test-agent-runner.py
 	@echo
+	@echo "== M6-Lite launch gate: corpus minimums, artefact digests, control plan, manifest digest"
+	$(VPY) tools/test-launch-gate.py
+	@echo
+	@echo "== M6-Lite review trigger: ADR-004 classes, second-review sample, evidence package"
+	$(VPY) tools/test-review.py
+	@echo
 	@echo "== Bench report schema and summarise() (docs/specifications/bench-schema.json)"
 	$(VPY) tools/test-bench.py
 	@echo
