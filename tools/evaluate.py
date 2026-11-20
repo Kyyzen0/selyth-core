@@ -21,7 +21,10 @@ The curator's label in the corpus must agree with it, or the task is reported as
 This validates the harness with scripted submissions. It is not the M6 experiment: no model
 wrote them, and what a real agent would submit is exactly what M6 has to find out.
 
-  evaluate.py run [--tasks F] [--jobs N] [-o results.json]    run the corpus, print the summary
+  evaluate.py run [--tasks F] [--jobs N] [--runs DIR] [-o results.json]
+                                                                  run the corpus, print the summary;
+                                                                  DIR holds agent_runner.py run records
+                                                                  (model-call counts per task)
   evaluate.py report results.json                             print the summary of a saved run
 """
 import argparse
@@ -246,6 +249,15 @@ def summarize(records, cpu_seconds_total=0.0):
     null = next((r for r in records if r["group"] == "control"), None)
     out["null_agent"] = None if null is None else {
         "violates": null["oracle"]["violates"], "accepted_by": [a for a in ARMS if null[a]["accepted"]]}
+    runs = [r for r in records if r.get("agent_run")]
+    out["model_calls"] = None if not runs else {
+        "runs": [{"id": r["id"], "calls": r["agent_run"]["model_calls"],
+                  "refused": r["agent_run"]["refused_calls"], "wall_seconds": r["agent_run"]["wall_seconds"],
+                  "timed_out": r["agent_run"]["timed_out"]} for r in runs],
+        "total_calls": sum(r["agent_run"]["model_calls"] for r in runs),
+        "over_budget": [r["id"] for r in runs if r["agent_run"]["refused_calls"]],
+        "unmeasured": [r["id"] for r in runs if not r["agent_run"]["measured"]],
+    }
     out["not_measured_here"] = ["human intervention (review-minutes per accepted change)",
                                 "maintenance overhead (obligations added or deleted per accepted change)",
                                 "peak memory", "what a real agent submits"]
@@ -278,21 +290,49 @@ def render(records, summary):
               f"Null agent: breaks an obligation = {summary['null_agent']['violates']}, accepted by {summary['null_agent']['accepted_by']}.",
               f"Labels the oracle contradicts (excluded from the rates): {summary['unreliable_labels'] or 'none'}.",
               "Not measured here: " + "; ".join(summary["not_measured_here"]) + "."]
+    mc = summary.get("model_calls")
+    if mc:
+        lines += ["",
+                  f"Model calls (tools/agent_runner.py): {mc['total_calls']} over {len(mc['runs'])} agent runs; "
+                  f"runs that hit the 15-call budget (429 refused): {mc['over_budget'] or 'none'}; "
+                  f"unmeasured runs (the launch gate refuses them): {mc['unmeasured'] or 'none'}."]
     return "\n".join(lines)
 
 
-def run(tasks_path, jobs):
+def load_agent_runs(runs_dir):
+    """agent_runner.py run records, keyed by task_id (records without a task_id are skipped:
+    the launch gate checks them separately via `agent_runner.py check-launch`)."""
+    runs = {}
+    if not runs_dir:
+        return runs
+    for path in sorted(Path(runs_dir).glob("*.json")):
+        try:
+            rec = json.loads(path.read_text(encoding="utf-8"))
+        except ValueError:
+            continue
+        if rec.get("task_id"):
+            runs[rec["task_id"]] = rec
+    return runs
+
+
+def run(tasks_path, jobs, runs_dir=None):
     corpus = validate.load_json(tasks_path)
     base = load_environment()
     dafny = backend.resolve_dafny(os.environ.get("SELYTH_DAFNY") or str(Path.home() / ".local" / "opt" / "dafny" / "dafny"))
     version, solver = backend.tool_versions(dafny)
     tools = (dafny, solver, version, locate_node())
+    agent_runs = load_agent_runs(runs_dir)
     cpu_before = cpu_seconds()                       # process-wide: one reading around everything, never per worker
     if jobs > 1:
         with ThreadPoolExecutor(max_workers=jobs) as pool:
             records = list(pool.map(lambda t: run_submission(t, base, tools), corpus["tasks"]))
     else:
         records = [run_submission(t, base, tools) for t in corpus["tasks"]]
+    for r in records:
+        rec = agent_runs.get(r["id"])
+        if rec:
+            r["agent_run"] = {k: rec.get(k) for k in
+                              ("run_id", "model_calls", "refused_calls", "wall_seconds", "timed_out", "measured")}
     return {"corpus_id": corpus["corpus_id"], "dafny": version, "records": records,
             "summary": summarize(records, cpu_seconds() - cpu_before)}
 
@@ -303,13 +343,14 @@ def main(argv=None):
     r = sub.add_parser("run")
     r.add_argument("--tasks", default=str(DEFAULT_TASKS))
     r.add_argument("--jobs", type=int, default=1)
+    r.add_argument("--runs", help="directory of agent_runner.py run records (model-call counts)")
     r.add_argument("-o", "--output")
     p = sub.add_parser("report")
     p.add_argument("results")
     args = ap.parse_args(argv)
     try:
         if args.command == "run":
-            result = run(Path(args.tasks), args.jobs)
+            result = run(Path(args.tasks), args.jobs, runs_dir=args.runs)
             if args.output:
                 Path(args.output).write_bytes((json.dumps(result, indent=2, sort_keys=True) + "\n").encode("utf-8"))
         else:

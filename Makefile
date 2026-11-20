@@ -46,6 +46,9 @@ test-python: venv
 	@echo "== M6-Lite task manifest schema (docs/evaluation/task-schema.json)"
 	$(VPY) tools/test-task-schema.py
 	@echo
+	@echo "== M6-Lite agent runner: model-call counting proxy, budgets, launch gate"
+	$(VPY) tools/test-agent-runner.py
+	@echo
 	@echo "== Bench report schema and summarise() (docs/specifications/bench-schema.json)"
 	$(VPY) tools/test-bench.py
 	@echo
