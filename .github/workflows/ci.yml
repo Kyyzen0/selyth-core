@@ -9,6 +9,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:   # manual retrigger, e.g. when runner-side PR checkouts fail
 
 jobs:
   test-python:
