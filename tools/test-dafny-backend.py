@@ -333,8 +333,9 @@ def check_pipeline(dafny, solver, version):
     try:
         pipeline(dafny, solver, version, ir_edit=other_adapter)
         check(False, "an IR from another adapter version is refused", "    a report was produced")
-    except backend.BackendError:
-        check(True, "an IR from another adapter version is refused (regenerate it)")
+    except backend.BackendError as exc:
+        check("another adapter version" in str(exc), "an IR from another adapter version is refused (regenerate it)",
+              f"    {exc}")
 
     heading("No verdict")
     report = pipeline(dafny, solver, version, resource_limit=1)

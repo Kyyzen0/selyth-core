@@ -10,11 +10,15 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test-python:
     # ubuntu-24.04, not latest: latest is 26.04, which no longer ships Python 3.9
     # (the oldest interpreter the project supports).
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -29,6 +33,7 @@ jobs:
 
   test-ts:
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
