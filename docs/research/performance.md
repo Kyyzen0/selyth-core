@@ -84,6 +84,32 @@ module of this size:
   `BLOCK-COST-BUDGET` violation. Recording `peak_rss_bytes` (e.g. from the child process's
   `ru_maxrss`) is the follow-up that would make that ceiling usable.
 
+## Third-party code: the gcd example
+
+`make bench EXAMPLE=gcd` runs the same measurement on the third-party module
+(`docs/specifications/examples/gcd/`, `gcd` from `pallosp/congruence_solver`, MIT): 4
+obligations on a loop with an invariant, versus 20 on the hand-written ledger.
+
+CI run `44676492840`, job `test-dafny`, 2026-11-20 (`make bench EXAMPLE=gcd`):
+
+| Obligation | outcome | resource_units | wall_ms |
+|---|---|---|---|
+| GCD-01 (precondition) | proven | 15 230 | 906 |
+| GCD-02 (postcondition) | proven | 15 471 | 904 |
+| GCD-03 (termination) | proven | 15 230 | 902 |
+| **TOTAL** | **accepted** | **45 931** | **2 712** |
+
+| Module | obligations | resource_units total | wall_ms total | resource_units / obligation | resource_units / TS line | lines of TS |
+|---|---|---|---|---|---|---|
+| ledger (hand-written) | 20 | 1 281 714 | 17 699 | ~64 086 | ~24 648 | 52 |
+| gcd (third-party) | 3 | 45 931 | 2 712 | ~15 310 | ~4 593 | 10 |
+
+Reading: the per-obligation cost tracks the **workspace file size**, not the obligation — each
+obligation re-verifies the whole file (ledger: 120 lines of Dafny for 52 of TS; gcd: a single
+loop). The third-party module costs ~15.3 k resource units per obligation against the ledger's
+~64 k, i.e. ~4× cheaper per obligation, in the same ~0.9 s wall-clock band. The fast-tier question
+(E-05) holds for both: every obligation of both modules verifies in under 1 s on the CI runner.
+
 ## Limits
 
 - One module, one machine, one tool build. Dafny's solver is seed-dependent (R7: one measured

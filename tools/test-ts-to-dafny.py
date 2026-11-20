@@ -104,6 +104,12 @@ def check_shapes():
     out = translated("export function f(a: number, b: number): number { let t = 0; t -= (a - b); return t; }",
                      {"functions": {"f": {"dafny_name": "F", "returns": [["result", "int"]]}}})
     check("t := t - (a - b);" in out, "the right operand of -= keeps its parentheses", out)
+    out = translated("export function f(a: number, b: number): number { while (b !== 0) { const t = b; b = a % b; a = t; } return a; }",
+                     {"functions": {"f": {"dafny_name": "F", "nat": ["a", "b"], "returns": [["result", "nat"]],
+                                          "loop": {"invariant": "true"}}}})
+    check("var a := a;" in out and "var b := b;" in out and "b := a % b;" in out and "a := t;" in out,
+          "a reassigned parameter is shadowed by a mutable local (Dafny parameters are immutable); "
+          "the ensures clauses still see the original parameter values", out)
     out = translated("export function f(a: number, b: number): number { return -a + b; }")
     check("result := -(a as int) + b;" in out, "unary minus converts a nat to int first (Dafny would type -a as a nat)", out)
     out = translated("export function f(a: number, b: number): number { if ((a < b) === (b < a)) return 1; return 0; }")

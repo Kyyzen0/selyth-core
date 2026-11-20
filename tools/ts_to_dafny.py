@@ -363,10 +363,16 @@ class Context:
         self.nonneg = {self.names[p] for p in spec.get("nat", [])}
         self.locals_declared = set()
         self._prepare(fn["body"])
+        # Dafny parameters are immutable: a parameter that the TypeScript reassigns is shadowed
+        # by a mutable local of the same name at the top of the body (`var b := b;`), so the
+        # assignments below are legal and the `ensures` clauses still see the original values.
+        self.reassigned_params = [p for p in fn["params"] if p in self._updates]
 
     def _prepare(self, body):
         """Which locals are non-negative: a local is, if every value it takes is."""
         inits, updates = {}, {}
+
+        self._updates = updates
 
         def walk(stmts):
             for s in stmts:
@@ -496,6 +502,8 @@ def translate_function(fn, spec, indent="  "):
     if spec.get("obligations"):
         out.append(f"{indent}// selyth:obligation {' '.join(spec['obligations'])}")
     out.append("{")
+    for p in ctx.reassigned_params:
+        out.append(f"{indent}var {ctx.names[p]} := {ctx.names[p]};")
     if spec.get("body_prefix"):
         out.append(f"{indent}{spec['body_prefix']}")
     loop_used = [False]

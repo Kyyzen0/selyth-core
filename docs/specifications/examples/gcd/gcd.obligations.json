@@ -1,0 +1,43 @@
+{
+  "selyth_obligation_set_version": "0.1.0",
+  "set_id": "gcd",
+  "specification_version": "1.0.0",
+  "title": "Euclidean greatest common divisor (third-party code)",
+  "obligations": [
+    {
+      "obligation_id": "GCD-01",
+      "kind": "precondition",
+      "statement": "requires a >= 1 || b >= 1",
+      "required_evidence_kind": "kernel-proven",
+      "intent_statement": "At least one input is a positive number; gcd(0, 0) is left undefined.",
+      "assumptions": [
+        "every input is a safe integer (below 2^53), so a TypeScript number behaves as a mathematical integer"
+      ],
+      "affected_components": [
+        "gcd.ts"
+      ]
+    },
+    {
+      "obligation_id": "GCD-02",
+      "kind": "postcondition",
+      "statement": "ensures result >= 1",
+      "required_evidence_kind": "kernel-proven",
+      "intent_statement": "The gcd of two numbers that are not both zero is a positive number.",
+      "assumptions": [],
+      "affected_components": [
+        "gcd.ts"
+      ]
+    },
+    {
+      "obligation_id": "GCD-03",
+      "kind": "termination",
+      "statement": "decreases b",
+      "required_evidence_kind": "kernel-proven",
+      "intent_statement": "The remainder strictly decreases at every step, so the loop terminates.",
+      "assumptions": [],
+      "affected_components": [
+        "gcd.ts"
+      ]
+    }
+  ]
+}
