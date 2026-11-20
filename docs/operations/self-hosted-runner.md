@@ -30,12 +30,28 @@ tar xzf runner.tgz
 ./run.sh
 ```
 
-`./run.sh` stays in the foreground and prints `Listening for Jobs` when ready. Keep it
-running (e.g. in a `tmux`/`screen` session, or as a service with
-`sudo ./svc.sh install "$USER" && sudo ./svc.sh start`). The runner shows **Idle** in
-Settings -> Actions -> Runners; queued PR runs are picked up immediately, and
-Settings -> Billing -> Actions shows 0 hosted minutes spent (self-hosted minutes are not
-metered).
+`./run.sh` stays in the foreground and prints `Listening for Jobs` when ready.
+
+**Automatic start (no manual step ever again):** install the runner as a service once —
+on macOS `svc.sh` registers a LaunchAgent that starts the runner at every boot/login:
+
+```sh
+sudo ./svc.sh install "$USER"
+sudo ./svc.sh start
+# check: sudo ./svc.sh status ; logs: ~/actions-runner/daemon/*.log or `./run.sh` output
+```
+
+From then on the runner is up whenever the Mac is awake, with zero interaction. While
+the Mac sleeps, jobs simply stay **queued** (not failed) and run automatically at the
+next wake-up — nothing is lost, and `concurrency: cancel-in-progress` keeps only the
+latest commit's run. The runner shows **Idle** in Settings -> Actions -> Runners; queued
+PR runs are picked up immediately, and Settings -> Billing -> Actions shows 0 hosted
+minutes spent (self-hosted minutes are not metered).
+
+If you would rather have CI with **no machine of yours at all**, switch the workflow back
+to hosted runners (`runs-on: ubuntu-24.04` in `.github/workflows/ci.yml`): jobs are
+refused while the monthly quota is exhausted, then run automatically at the next monthly
+reset — zero setup, zero cost, fully automatic.
 
 Requirements on the Mac: `git`, `curl`, `unzip`, `make` (all present via Xcode Command
 Line Tools), plus network access to github.com and pypi.org (the `setup-python` /
