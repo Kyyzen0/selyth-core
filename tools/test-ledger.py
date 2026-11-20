@@ -232,11 +232,11 @@ def check_translated_bugs(dafny, solver, version):
               and {v["rule_id"] for v in report["decision"]["violations"]} == {"BLOCK-FAILED"},
               f"{label}: rejected, failing {sorted(failed)}", f"    {report['decision']}")
     try:
-        t2d.translate(ts.replace("return balance - amount;", "return Math.abs(balance - amount);", 1), translation)
+        t2d.translate(ts.replace("return balance - amount;", "return Math.sqrt(balance - amount);", 1), translation)
         refused = False
     except t2d.TranslationError:
         refused = True
-    check(refused, "a change the translator cannot read (Math.abs) is refused, not approximated")
+    check(refused, "a change the translator cannot read (Math.sqrt) is refused, not approximated")
 
 
 def check_vacuity(dafny, solver, version):

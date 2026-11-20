@@ -76,11 +76,12 @@ docs/
     report-schema.json                Verification report schema
     policy-schema.json                Acceptance policy schema
     examples/ledger/                  A 20-obligation money module: TypeScript, Dafny model, obligations, policy, lock
-    examples/gcd/                     Third-party code (pallosp/congruence_solver, MIT) through the whole gate: 4 proven obligations + 2 property-tested criteria
+    examples/gcd/                     Third-party code (pallosp/congruence_solver, MIT) through the gate: 4 proven + 2 property-tested obligations in one merged report
     negative-scenarios.md             The M5 scenarios: incorrect code, weakened obligations and policy, and the lock
     lock-schema.json                  The lock: human-approved digests of the policy and the Obligation Set
     dafny-backend.md                  Dafny backend: workspace markers, outcomes, trust escapes, the report
     property-backend.md               Property-test backend (the second backend): acceptance criteria on a seeded sample
+    gate.md                           The gate: one set, one policy, one lock, ONE merged report (Dafny + property tests)
     verification-ir.md                Verification IR (L2), reproducibility key, lowering rules
     verification-ir-schema.json       Verification IR schema
     policy-engine.md                  Normative semantics of (policy, report, obligation set) -> decision
@@ -117,7 +118,8 @@ ts/                                   TypeScript port of the adapter (src/), tes
   test-scenarios.py                   M5 negative scenarios, end to end with Dafny
   dafny_backend.py                    Dafny backend: IR + proof workspace -> report (decided by the engine)
   test-dafny-backend.py               Backend tests against a real Dafny
-  property_backend.py                 Property-test backend: acceptance criteria -> report (second backend, needs Node)
+  gate.py                             The gate: one Obligation Set -> one merged report -> one decision (Dafny + property tests)
+  property_backend.py                 Property-test backend: acceptance criteria -> report entries (second backend, needs Node)
   test-properties.py                  Property backend tests against a real Node (make test-properties)
   ts_to_dafny.py                      TypeScript subset -> Dafny methods (proof model generated from the code)
   test-ts-to-dafny.py                 Translator tests: regeneration, refusals, differential, mutants

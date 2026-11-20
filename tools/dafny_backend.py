@@ -201,14 +201,19 @@ def hypotheses_for(source, unit, contract_clauses):
     for number, line in enumerate(lines):
         found = marker_ids(line)
         if found and unit["obligation_id"] in found[1]:
-            own = [i for i in found[1]
-                   if i != unit["obligation_id"] and i in contract_clauses
-                   and contract_clauses[i].startswith("requires ")]
             contract = contract_marker_line(source, unit["obligation_id"])
             if contract is not None and contract != number:
+                # a loop marker: the loop's own contract clauses (a loop terminates by its own
+                # `decreases` too) plus the whole contract of the enclosing declaration
+                own = [i for i in found[1]
+                       if i != unit["obligation_id"] and i in contract_clauses]
                 found_contract = marker_ids(lines[contract])
                 own += [i for i in found_contract[1]
                         if i != unit["obligation_id"] and i in contract_clauses and i not in own]
+            else:
+                own = [i for i in found[1]
+                       if i != unit["obligation_id"] and i in contract_clauses
+                       and contract_clauses[i].startswith("requires ")]
             return [(i, contract_clauses[i]) for i in own]
     return []
 
@@ -229,21 +234,22 @@ def instantiate(source, obligation_id, clause, hypotheses=()):
         if found and obligation_id in found[1]:
             clause_line = number
             break
-    hyp_line = clause_line
-    if clause_line is not None and hypotheses:
-        contract = contract_marker_line(source, obligation_id)
-        if contract is not None and contract != clause_line:
-            hyp_line = contract
+    contract = contract_marker_line(source, obligation_id) if clause_line is not None else None
+    at_contract = contract is None or contract == clause_line
+    req_hyps = [h for h in hypotheses if h.startswith("requires ")]
+    dec_hyps = [h for h in hypotheses if h.startswith("decreases ")]
     out = []
     for number, line in enumerate(lines):
         found = marker_ids(line)
         if not found:
             out.append(line)
         elif number == clause_line:
-            own = hypotheses if hyp_line == clause_line else ()
+            own = list(hypotheses) if at_contract else dec_hyps
             out.append(f"{found[0]}{' '.join([*own, clause])}")
-        elif number == hyp_line:
-            out.append(f"{found[0]}{' '.join(hypotheses)}")
+        elif not at_contract and number == contract and req_hyps:
+            # `requires` is not legal on a loop, so the preconditions go to the contract marker;
+            # `decreases` is legal on a loop and stays there, where the loop's locals are in scope
+            out.append(f"{found[0]}{' '.join(req_hyps)}")
         else:
             out.append("")
     return "\n".join(out)
@@ -365,7 +371,8 @@ def evidence(outcome, tool, scope, assumptions, cost):
             "producer_tool": tool, "scope": scope, "assumptions": assumptions, "cost": cost}
 
 
-def obligation_results(ir, source, workspace_name, dafny, solver, version, resource_limit, time_limit):
+def obligation_results(ir, source, workspace_name, dafny, solver, version, resource_limit, time_limit,
+                       include_unsupported=True):
     tool = {"name": BACKEND_NAME, "version": version}
     spec_version = ir["obligation_set"]["specification_version"]
     results = []
@@ -403,11 +410,12 @@ def obligation_results(ir, source, workspace_name, dafny, solver, version, resou
         if diagnostics:
             entry["diagnostics"] = diagnostics
         results.append(entry)
-    for item in ir["unsupported"]:
-        scope = f"not run: the adapter could not lower this obligation to a {BACKEND_NAME} clause"
-        results.append({**base(item, item["affected_components"]), "outcome": "not-run",
-                        "evidence": evidence("not-run", tool, scope, [], {"timed_out": False}),
-                        "diagnostics": [item["reason"]]})
+    if include_unsupported:
+        for item in ir["unsupported"]:
+            scope = f"not run: the adapter could not lower this obligation to a {BACKEND_NAME} clause"
+            results.append({**base(item, item["affected_components"]), "outcome": "not-run",
+                            "evidence": evidence("not-run", tool, scope, [], {"timed_out": False}),
+                            "diagnostics": [item["reason"]]})
     return sorted(results, key=lambda r: r["obligation_id"])
 
 
@@ -415,8 +423,12 @@ def sha256_bytes(data):
     return "sha256:" + hashlib.sha256(data).hexdigest()
 
 
-def build_report(ir, obligation_set, policy, workspace_bytes, workspace_name, produced_at,
-                 dafny, solver, version, resource_limit, time_limit, lock=None):
+def check_workspace(ir, obligation_set, workspace_bytes):
+    """The consistency checks between IR, Obligation Set and workspace; return the decoded source.
+
+    Shared with tools/gate.py, which runs this backend over the lowerable units only and lets
+    another backend cover the rest.
+    """
     source = workspace_bytes.decode("utf-8")
     set_digest = oset.set_digest(obligation_set)
     if ir["obligation_set"]["digest"] != set_digest:
@@ -430,6 +442,13 @@ def build_report(ir, obligation_set, policy, workspace_bytes, workspace_name, pr
         raise BackendError("the workspace has markers for " + ", ".join(orphans) + " but the Obligation "
                            "Set does not declare them: a detached obligation must stay visible, so the "
                            "workspace and the set must be regenerated together (exit 2, no report)")
+    return source
+
+
+def build_report(ir, obligation_set, policy, workspace_bytes, workspace_name, produced_at,
+                 dafny, solver, version, resource_limit, time_limit, lock=None):
+    source = check_workspace(ir, obligation_set, workspace_bytes)
+    set_digest = oset.set_digest(obligation_set)
     policy_digest = engine.policy_digest(policy)
     results = obligation_results(ir, source, workspace_name, dafny, solver, version,
                                  resource_limit, time_limit)

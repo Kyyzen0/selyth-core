@@ -9,9 +9,11 @@ The subset (anything else is refused with a located error, never guessed):
     is dropped together with the statements that call it;
   * statements: `let|const x = e;`, `x = e;`, `x += e;`, `x -= e;`, `x++;`, `return e;`,
     `return [e, e];`, `if (e) s [else s]`, `while (e) { ... }`, `while (true) { ...; if (e) break; ... }`,
-    blocks;
+    `for (let i = K; i < e; i++) { ... }` (K a non-negative literal, `<` or `<=`, only `i++` as the
+    update — desugared to a `while` with an explicit counter), blocks;
   * expressions: integer literals, identifiers, `+ - * % / === !== < <= > >= && || !`, unary `-`,
-    parentheses, and `Math.floor(a / b)` as the only division.
+    parentheses, `c ? a : b`, `Math.floor(a / b)` as the only division, and `Math.abs(e)` (emitted as
+    an `Abs` helper on `int`; exact because `nat` is a subtype of `int`).
 
 Numbers are Dafny integers. That is a stated gap, not a translation: a TypeScript number is a
 double, exact only below 2^53, and the Dafny proof holds for unbounded integers (see
@@ -242,6 +244,33 @@ class Parser:
             cond = self.expr()
             self.eat(")")
             return ("while", cond, self.block(hooks))
+        if tok == "for":
+            # A counted loop is the one `for` the subset accepts, desugared at parse time into
+            # `var i := K; while i < e { ...; i := i + 1; }` so the existing loop machinery
+            # (sidecar invariant, marker, one loop per function) applies unchanged.
+            self.next()
+            self.eat("(")
+            if self.peek() not in ("let", "const"):
+                raise TranslationError("only `for (let i = K; i < e; i++)` is in the subset")
+            self.next()
+            var = self.ident()
+            self.eat("=")
+            init = self.expr()
+            if init[0] != "num" or init[1] < 0:
+                raise TranslationError("the for-loop initialiser must be a non-negative integer literal")
+            self.eat(";")
+            cond = self.expr()
+            if not (cond[0] == "bin" and cond[1] in ("<", "<=") and cond[2] == ("var", var)):
+                raise TranslationError(f"the for-loop condition must be `{var} < e` or `{var} <= e`")
+            self.eat(";")
+            if self.peek() != var or self.peek(1) != "++":
+                raise TranslationError("only `i++` is in the subset as a for-loop update")
+            self.next()
+            self.next()
+            self.eat(")")
+            body = self.body_of(hooks)
+            return ("block", [("let", var, init),
+                              ("while", cond, [*body, ("assign", var, "+=", ("num", 1))])])
         if tok == "break":
             self.next()
             self.eat(";")
@@ -280,13 +309,24 @@ class Parser:
     _LEVELS = [("||",), ("&&",), ("===", "!=="), ("<", "<=", ">", ">="), ("+", "-"), ("*", "/", "%")]
 
     def expr(self, level=0):
-        if level == len(self._LEVELS):
+        if level == 0:
+            return self.ternary()
+        if level > len(self._LEVELS):
             return self.unary()
+        ops = self._LEVELS[level - 1]
         left = self.expr(level + 1)
-        while self.peek() in self._LEVELS[level]:
+        while self.peek() in ops:
             op = self.next()
             left = ("bin", op, left, self.expr(level + 1))
         return left
+
+    def ternary(self):
+        cond = self.expr(1)                            # the `||` level and everything below
+        if self.accept("?"):
+            then = self.expr()
+            self.eat(":")
+            return ("if", cond, then, self.ternary())   # right associative
+        return cond
 
     def unary(self):
         tok = self.peek()
@@ -308,14 +348,20 @@ class Parser:
         if tok == "Math":
             self.next()
             self.eat(".")
-            if self.next() != "floor":
-                raise TranslationError("only Math.floor is in the subset")
-            self.eat("(")
-            inner = self.expr()
-            self.eat(")")
-            if inner[0] != "bin" or inner[1] != "/":
-                raise TranslationError("Math.floor is only accepted around a division a / b")
-            return ("floordiv", inner[2], inner[3])
+            name = self.next()
+            if name == "floor":
+                self.eat("(")
+                inner = self.expr()
+                self.eat(")")
+                if inner[0] != "bin" or inner[1] != "/":
+                    raise TranslationError("Math.floor is only accepted around a division a / b")
+                return ("floordiv", inner[2], inner[3])
+            if name == "abs":
+                self.eat("(")
+                inner = self.expr()
+                self.eat(")")
+                return ("abs", inner)
+            raise TranslationError("only Math.floor and Math.abs are in the subset")
         if kind == "id":
             self.next()
             return ("var", tok)
@@ -332,7 +378,9 @@ class Parser:
 _DAFNY_OP = {"===": "==", "!==": "!=", "&&": "&&", "||": "||", "<": "<", "<=": "<=", ">": ">", ">=": ">=",
              "+": "+", "-": "-", "*": "*", "%": "%"}
 _PREC = {"||": 2, "&&": 2, "==": 3, "!=": 3, "<": 3, "<=": 3, ">": 3, ">=": 3, "+": 5, "-": 5,
-         "*": 6, "/": 6, "%": 6}
+         "*": 6, "/": 6, "%": 6, "if": 1}
+
+ABS_DEF = "function Abs(x: int): int\n{\n  if x < 0 then -x else x\n}"
 _NEGATED = {"<": ">=", "<=": ">", ">": "<=", ">=": "<", "===": "!==", "!==": "==="}
 
 
@@ -416,6 +464,10 @@ class Context:
             return self.is_nonneg(e[2], known) and self.is_nonneg(e[3], known)
         if kind == "floordiv":
             return self.is_nonneg(e[1], known) and self.is_nonneg(e[2], known)
+        if kind == "abs":
+            return True
+        if kind == "if":
+            return self.is_nonneg(e[2], known) and self.is_nonneg(e[3], known)
         return False
 
     # Expression emission, with the fewest parentheses that keep the meaning in Dafny. Dafny has
@@ -465,6 +517,14 @@ class Context:
             return f"!{text}"
         if kind == "floordiv":
             return self._arith(e[1], e[2], "/", parent_op, right)
+        if kind == "abs":
+            return f"Abs({self.emit(e[1])})"
+        if kind == "if":
+            def sub(x):
+                t = self.emit(x)
+                return f"({t})" if x[0] == "if" else t   # nested if-expressions are parenthesised
+            text = f"if {self.emit(e[1])} then {sub(e[2])} else {sub(e[3])}"
+            return self._wrap(text, "if", parent_op, right)
         if kind == "bin":
             op = e[1]
             if op == "/":
@@ -591,6 +651,32 @@ def translate_function(fn, spec, indent="  "):
     return "\n".join(out)
 
 
+def _uses_abs_in_expr(e):
+    if not isinstance(e, tuple):
+        return False
+    if e[0] == "abs":
+        return True
+    return any(_uses_abs_in_expr(x) for x in e[1:] if isinstance(x, tuple))
+
+
+def _uses_abs_in_stmts(stmts):
+    for s in stmts:
+        if s[0] == "let" and _uses_abs_in_expr(s[2]):
+            return True
+        if s[0] == "return" and any(_uses_abs_in_expr(v) for v in s[1]):
+            return True
+        if s[0] == "assign" and _uses_abs_in_expr(s[3]):
+            return True
+        if s[0] == "if" and (_uses_abs_in_expr(s[1]) or _uses_abs_in_stmts(s[2])
+                             or _uses_abs_in_stmts(s[3] or [])):
+            return True
+        if s[0] == "while" and (_uses_abs_in_expr(s[1]) or _uses_abs_in_stmts(s[2])):
+            return True
+        if s[0] == "block" and _uses_abs_in_stmts(s[1]):
+            return True
+    return False
+
+
 def translate(ts_source, spec):
     """The Dafny workspace for `ts_source`: the preamble, then per function its translated method
     and the hand-written callers, in the order the functions appear in the code."""
@@ -603,7 +689,13 @@ def translate(ts_source, spec):
         raise TranslationError(f"function {name} has no entry in the specification")
     for name in sorted(set(declared) - seen):
         raise TranslationError(f"the specification names {name}, which the code does not declare")
-    parts = [spec.get("header", "").rstrip("\n"), spec.get("preamble", "").rstrip("\n")]
+    uses_abs = any(_uses_abs_in_stmts(fn["body"]) for fn in functions)
+    if uses_abs and any(entry.get("dafny_name") == "Abs" for entry in declared.values()):
+        raise TranslationError("Math.abs is used and a function is already translated as `Abs`: rename one")
+    preamble = spec.get("preamble", "").rstrip("\n")
+    if uses_abs:
+        preamble = f"{preamble}\n\n{ABS_DEF}" if preamble else ABS_DEF
+    parts = [spec.get("header", "").rstrip("\n"), preamble]
     for fn in functions:
         entry = declared[fn["name"]]
         block = []

@@ -2,13 +2,13 @@
 // (commit 150bfb575c7ad1bc31fc4db6335e3969681652ef, MIT License, (c) pallosp).
 // The greatest common divisor by the Euclidean algorithm.
 //
-// Ported to the pure subset of docs/specifications/ts-to-dafny.md with a two-line diff,
+// Ported to the pure subset of docs/specifications/ts-to-dafny.md with a one-line diff,
 // recorded here because the subset is deliberately conservative:
-//   - `return Math.abs(a)` -> `return a`  (identical on the nat domain declared in
-//     gcd.translation.json; the subset allows no Math function but Math.floor(a / b))
 //   - the return type `: number` is added (the subset requires it)
-// discoverLargestCollatz-style helpers of the original repo use for-loops, arrays and
-// spreads, which the subset refuses; they are not part of this example.
+// `return Math.abs(a)` is translated as-is: Math.abs is in the subset (an Abs helper on int,
+// exact on the nat domain declared in gcd.translation.json).
+// discoverLargestCollatz-style helpers of the original repo use arrays and spreads,
+// which the subset refuses; they are not part of this example.
 
 export function gcd(a: number, b: number): number {
   while (b !== 0) {
@@ -16,5 +16,5 @@ export function gcd(a: number, b: number): number {
     b = a % b;
     a = t;
   }
-  return a;
+  return Math.abs(a);
 }

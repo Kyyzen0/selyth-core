@@ -13,11 +13,14 @@
 | `let`, `const`, `=`, `+=`, `-=`, `++` | `var`, `:=`, `x := x + e`, `x := x - e` |
 | `if` / `else`, blocks, early `return` | the same, with `return;` after the result assignment |
 | `while (c)` or `while (true) { if (e) break; ... }` | `while c` / `while !e` (a comparison is inverted, not wrapped) |
+| `for (let i = K; i < e; i++) { ... }` | `var i := K; while i < e { ...; i := i + 1; }` (K a non-negative literal; `<` or `<=`; only `i++` as the update) |
 | `Math.floor(a / b)`, `%` | `a / b`, `a % b`, only on provably non-negative operands |
+| `Math.abs(e)` | `Abs(e)`, a prepended `function Abs(x: int): int` helper (exact, since `nat` is a subtype of `int`) |
+| `c ? a : b` | `if c then a else b` (nested ternaries in the branches are parenthesised) |
 | `===`, `!==`, `&&`, `\|\|`, `!`, comparisons | `==`, `!=`, `&&`, `\|\|`, `!`, comparisons |
 | a trailing optional function parameter and its calls | dropped (a test hook has no counterpart in the proof); the arguments must be side-effect-free expressions, otherwise refused |
 
-Anything else is refused with the reason: strings, classes, calls, ternaries, `for`, `switch`, non-integer literals, `==`, a bare `/`, other `Math` functions, a second loop in a function, a name that is not declared.
+Anything else is refused with the reason: strings, classes, calls, `switch`, non-integer literals, `==`, a bare `/`, other `Math` functions, a second loop in a function, a malformed `for`, a name that is not declared.
 
 ## What the code cannot say
 

@@ -151,6 +151,30 @@ def check_loops():
           "a `break` outside the loop-exit form is refused")
 
 
+def check_constructs():
+    heading("Widened subset: ternary, Math.abs, counted for-loop")
+    spec = {"functions": {"f": {"dafny_name": "F", "nat": ["a", "b"], "returns": [["result", "int"]]}}}
+    out = translated("export function f(a: number, b: number): number { return a > b ? a : b; }", spec)
+    check("result := if a > b then a else b;" in out, "a ternary becomes a Dafny if-expression", out)
+    out = translated("export function f(a: number, b: number): number { return (a > b ? a : b) * 2 - 1; }", spec)
+    check("result := (if a > b then a else b) * 2 - 1;" in out,
+          "a ternary under arithmetic is parenthesised", out)
+    out = translated("export function f(a: number, b: number): number { return Math.abs(a - b); }", spec)
+    check("function Abs(x: int): int" in out and "result := Abs(a - b);" in out,
+          "Math.abs becomes the Abs helper (prepended once) on int", out)
+    out = translated("export function f(a: number, b: number): number { return Math.abs(a - b) + Math.abs(b - a); }", spec)
+    check(out.count("function Abs") == 1, "the Abs helper is emitted once however often it is used", out)
+    fspec = {"functions": {"f": {"dafny_name": "F", "nat": ["n"], "returns": [["t", "nat"]],
+                                 "loop": {"invariant": "0 <= i <= n", "obligations": ["X-1"]}}}}
+    out = translated("export function f(n: number): number { let t = 0; for (let i = 0; i < n; i++) { t += i; } return t; }",
+                     fspec)
+    check("var i := 0;\n  while i < n\n    invariant 0 <= i <= n\n    // selyth:obligation X-1\n  {\n    t := t + i;\n    i := i + 1;\n  }"
+          in out, "a counted for-loop desugars to while + explicit counter, with the sidecar's invariant and marker", out)
+    out = translated("export function f(n: number): number { let t = 0; for (let i = 0; i <= n; i++) { t += 1; } return t; }",
+                     fspec)
+    check("while i <= n" in out, "`i <= e` is accepted as the for-loop condition", out)
+
+
 def check_refusals():
     heading("Everything outside the subset is refused")
     cases = {
@@ -169,7 +193,12 @@ def check_refusals():
         "loose equality": "export function f(a: number, b: number): number { if (a == b) return 1; return 0; }",
         "an unknown name": "export function f(a: number, b: number): number { return c; }",
         "a call": "export function f(a: number, b: number): number { return g(a); }",
-        "a ternary": "export function f(a: number, b: number): number { return a ? 1 : 2; }",
+        "a ternary without else": "export function f(a: number, b: number): number { return a ? 1; }",
+        "Math.min": "export function f(a: number, b: number): number { return Math.min(a, b); }",
+        "a for loop without a counter declaration": "export function f(n: number): number { for (i = 0; i < n; i++) {} return 0; }",
+        "a for loop with a decrementing counter": "export function f(n: number): number { for (let i = 0; i < n; i--) {} return 0; }",
+        "a for loop with a non-literal initialiser": "export function f(n: number): number { for (let i = n; i < 10; i++) {} return 0; }",
+        "a for loop with a downward condition": "export function f(n: number): number { for (let i = 0; i > n; i++) {} return 0; }",
         "an array literal result of the wrong arity": "export function f(a: number, b: number): number { return [a, b]; }",
         "a signed division": "export function f(a: number, b: number): number { return Math.floor(a / b) - 1 + (a - b) % 3; }",
         "a subtraction under a division": "export function f(a: number, b: number): number { return Math.floor((a - b) / 2); }",
@@ -319,12 +348,136 @@ def check_differential():
                      f"({translated_ok} translated)", str(wrong[:3]))
 
 
+def _split_ternary_ts(src):
+    depth, q, c = 0, None, None
+    for i, ch in enumerate(src):
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth -= 1
+        elif depth == 0:
+            if ch == "?" and q is None:
+                q = i
+            elif ch == ":" and q is not None and c is None:
+                c = i
+    if q is None or c is None:
+        return None
+    return src[:q], src[q + 1:c], src[c + 1:]
+
+
+def _ternary_ts_to_python(src):
+    s = src.strip()
+    while s.startswith("(") and s.endswith(")") and _wraps_whole(s):
+        s = s[1:-1].strip()
+    parts = _split_ternary_ts(s)
+    if parts is None:
+        return s
+    c, a, b = parts
+    return f"({_ternary_ts_to_python(a)}) if ({_ternary_ts_to_python(c)}) else ({_ternary_ts_to_python(b)})"
+
+
+def _wraps_whole(s):
+    depth = 0
+    for i, ch in enumerate(s):
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth -= 1
+            if depth == 0 and i < len(s) - 1:
+                return False
+    return True
+
+
+def _split_dafny_if(src):
+    s = src.strip()
+    while s.startswith("(") and s.endswith(")") and _wraps_whole(s):
+        s = s[1:-1].strip()
+    if not s.startswith("if "):
+        return None
+    depth, then, els = 0, None, None
+    i = 3
+    while i < len(s):
+        if s[i] in "([":
+            depth += 1
+        elif s[i] in ")]":
+            depth -= 1
+        elif depth == 0:
+            if then is None and s.startswith(" then ", i):
+                then = i
+                i += 6
+                continue
+            if els is None and s.startswith(" else ", i):
+                els = i
+                i += 6
+                continue
+        i += 1
+    if then is None or els is None:
+        return None
+    return s[3:then].strip(), s[then + 6:els], s[els + 6:]
+
+
+def _ternary_dafny_to_python(src):
+    parts = _split_dafny_if(src)
+    if parts is None:
+        return src
+    c, a, b = parts
+    return f"({_ternary_dafny_to_python(a)}) if ({_ternary_dafny_to_python(c)}) else ({_ternary_dafny_to_python(b)})"
+
+
+def random_construct(rng, vars_):
+    e = random_arith(rng, 2, vars_)
+    kind = rng.choice(["plain", "abs", "abs", "ternary", "ternary", "nested"])
+    if kind == "abs":
+        return f"Math.abs(({e}) - ({random_arith(rng, 2, vars_)}))"
+    if kind == "ternary":
+        return f"({random_bool(rng, 2, vars_)}) ? ({e}) : ({random_arith(rng, 2, vars_)})"
+    if kind == "nested":
+        c = random_bool(rng, 2, vars_)
+        return f"({c}) ? Math.abs(({e}) - 3) : (({c}) ? 0 : ({random_arith(rng, 1, vars_)}))"
+    return e
+
+
+def check_construct_differential():
+    heading("Differential: ternary and Math.abs agree between the TypeScript and Dafny readings")
+    rng = random.Random(20261121)
+    spec = {"functions": {"f": {"dafny_name": "F", "nat": ["a", "b"], "returns": [["result", "int"]]}}}
+    wrong, translated_ok, tried, refusals = [], 0, 0, 0
+    for _ in range(400):
+        e = random_construct(rng, ["a", "b"])
+        try:
+            out = t2d.translate(f"export function f(a: number, b: number): number {{ return {e}; }}", spec)
+        except t2d.TranslationError as err:
+            if "non-negative" in str(err):                  # the sign inference is conservative: fine
+                refusals += 1
+            else:
+                wrong.append((e, f"refused: {err}"))
+            continue
+        translated_ok += 1
+        text = re.search(r"result := (.*);", out).group(1)
+        for a, b in [(0, 0), (1, 2), (7, 3), (12, 5), (0, 9), (31, 4)]:
+            tried += 1
+            ts_text = _ternary_ts_to_python(floor_to_python(e).replace("Math.abs(", "abs("))
+            ts_text = ts_text.replace("===", "==").replace("!==", "!=").replace("&&", " and ").replace("||", " or ")
+            ts_text = re.sub(r"!(?!=)", " not ", ts_text)
+            dafny_text = text.replace("Abs(", "abs(").replace("&&", " and ").replace("||", " or ")
+            dafny_text = re.sub(r"!(?!=)", " not ", dafny_text)
+            dafny_text = re.sub(r"(?<![/])/(?![/])", "//", _ternary_dafny_to_python(dafny_text))
+            env = {"a": a, "b": b, "abs": abs}
+            if eval(ts_text, {"__builtins__": {}}, env) != eval(dafny_text, {"__builtins__": {}}, dict(env)):
+                wrong.append((e, text, a, b))
+                break
+    check(not wrong, f"random ternary/abs expressions agree at 6 points each ({translated_ok} translated, "
+                     f"{tried} evaluations, {refusals} conservative refusals)", str(wrong[:3]))
+
+
 def main():
     check_ledger()
     check_shapes()
     check_loops()
+    check_constructs()
     check_refusals()
     check_differential()
+    check_construct_differential()
     print(f"\n{'FAILED' if FAILURES else 'all checks passed'}: {len(FAILURES)} failure(s)")
     for label, detail in FAILURES:
         print(f"\n--- {label}\n{detail}")

@@ -100,11 +100,14 @@ test-eval: venv
 # E-05/P-01/F1): a table on stdout, the bench report JSON after it. Needs a real Dafny.
 EXAMPLE ?= ledger
 EXDIR   := docs/specifications/examples/$(EXAMPLE)
+# When the example has a property sidecar (gcd), the bench runs the merged gate report
+# (Dafny + property tests); otherwise the Dafny-only report.
+BENCH_GATE := $(if $(wildcard $(EXDIR)/$(EXAMPLE).properties.json),--source $(EXDIR)/$(EXAMPLE).ts --spec $(EXDIR)/$(EXAMPLE).properties.json,)
 bench: venv
 	$(VPY) tools/bench.py --obligation-set $(EXDIR)/$(EXAMPLE).obligations.json \
 	    --policy $(EXDIR)/$(EXAMPLE).policy.json \
 	    --lock $(EXDIR)/$(EXAMPLE).lock.json \
-	    --workspace $(EXDIR)/$(EXAMPLE).workspace.dfy
+	    --workspace $(EXDIR)/$(EXAMPLE).workspace.dfy $(BENCH_GATE)
 
 # The whole gate on one example, in one command (validate, regenerate + compare the workspace,
 # lower, verify with Dafny, accept under the lock, replay; property backend too when the example

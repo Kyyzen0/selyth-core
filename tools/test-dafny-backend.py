@@ -16,6 +16,7 @@ from pathlib import Path
 
 import dafny_backend as backend
 import obligation_set as oset
+import ts_to_dafny as t2d
 import policy_engine as engine
 import ts_adapter as adapter
 import validate
@@ -159,7 +160,7 @@ def check_units():
           "a contract-marker clause keeps only the requires clauses of its own marker")
     inst = backend.instantiate(loop_src, "I", "invariant b <= a", ["requires a > 0", "decreases a"])
     lines = inst.split("\n")
-    check(lines[1] == "  requires a > 0 decreases a" and lines[5] == "    invariant b <= a"
+    check(lines[1] == "  requires a > 0" and lines[5] == "    decreases a invariant b <= a"
           and inst.count("\n") == loop_src.count("\n") and not any(backend.MARKER.match(l) for l in lines),
           "the hypotheses go to the contract marker, the loop clause to the loop marker, line numbers kept")
     loop_no_contract = ("method N(a: nat)\n{\n  var b := a;\n  while b != 0\n"
@@ -430,6 +431,57 @@ def check_cli_usage():
     check(run(*base, "--time-limit=-5") == 2, "a negative --time-limit in equals form exits 2")
 
 
+def check_constructs(dafny, solver, version):
+    """The widened subset (counted for-loop, ternary, Math.abs) translates to Dafny that a real
+    Dafny proves: the emitted workspace verifies, obligation by obligation."""
+    heading("Widened subset verified by real Dafny: counted for, ternary, Math.abs")
+    ts_source = (
+        "export function sumTo(n: number): number {\n"
+        "  let t = 0;\n"
+        "  for (let i = 0; i < n; i++) { t += i; }\n"
+        "  return t;\n"
+        "}\n"
+        "export function maxAbs(a: number, b: number): number {\n"
+        "  return a > b ? Math.abs(a) : Math.abs(b - a);\n"
+        "}\n")
+    spec = {"header": "// synthetic test of the widened subset",
+            "functions": {
+                "sumTo": {"dafny_name": "SumTo", "nat": ["n"], "returns": [["t", "nat"]],
+                          "obligations": ["T-1"],
+                          "loop": {"invariant": "0 <= i <= n", "obligations": ["T-2", "T-3"]},
+                          "callers": "method UseSumTo() { var t := SumTo(5); }"},
+                "maxAbs": {"dafny_name": "MaxAbs", "nat": ["a", "b"], "returns": [["result", "nat"]],
+                           "obligations": ["C-1"]}}}
+    workspace = t2d.translate(ts_source, spec)
+    check("function Abs(x: int): int" in workspace and "while i < n" in workspace
+          and "if a > b then Abs(a) else Abs(b - a)" in workspace,
+          "(setup) the translation emits the Abs helper, the desugared while, the if-expression",
+          workspace)
+    document = {
+        "selyth_obligation_set_version": "0.1.0", "set_id": "constructs", "specification_version": "1.0.0",
+        "title": "Widened-subset synthetic set",
+        "obligations": [
+            {"obligation_id": "T-1", "kind": "postcondition", "statement": "ensures t >= 0",
+             "required_evidence_kind": "kernel-proven", "assumptions": [], "affected_components": ["t.ts"]},
+            {"obligation_id": "T-2", "kind": "termination", "statement": "decreases n - i",
+             "required_evidence_kind": "kernel-proven", "assumptions": [], "affected_components": ["t.ts"]},
+            {"obligation_id": "T-3", "kind": "invariant", "statement": "invariant 0 <= i <= n",
+             "required_evidence_kind": "kernel-proven", "assumptions": [], "affected_components": ["t.ts"]},
+            {"obligation_id": "C-1", "kind": "postcondition",
+             "statement": "ensures a > b ==> result == a",
+             "required_evidence_kind": "kernel-proven", "assumptions": [], "affected_components": ["t.ts"]},
+        ]}
+    ir = adapter.lower(document, version)
+    report = backend.build_report(ir, document, POLICY, workspace.encode("utf-8"), "constructs.dfy",
+                                  PRODUCED_AT, dafny, solver, version, 1_000_000, 60)
+    check(valid(report), "the report is valid for report-schema.json",
+          "    " + "; ".join(f"{p.path} {p.message}" for p in validate.validate(report, REPORT_SCHEMA)))
+    check(outcomes(report) == {"T-1": "proven", "T-2": "proven", "T-3": "proven", "C-1": "proven"},
+          "all four obligations of the widened subset are proven by real Dafny", f"    {outcomes(report)}")
+    check(report["decision"]["result"] == "accepted", "and the run is accepted",
+          f"    {report['decision']['violations']}")
+
+
 def check_bench(dafny):
     """The benchmark target, end to end with a real Dafny: table + valid bench report."""
     heading("Bench: the gate's cost on the ledger (E-05 / P-01 / F1)")
@@ -482,6 +534,7 @@ def main():
         check(version == "4.11.0", f"Dafny {version} is the version the fixtures and docs name (4.11.0)",
               "    other versions may change diagnostics or resource counts")
         check_pipeline(dafny, solver, version)
+        check_constructs(dafny, solver, version)
         check_bench(dafny)
     print(f"\n{'FAILED' if FAILURES else 'all checks passed'}: {len(FAILURES)} failure(s)")
     for label, detail in FAILURES:

@@ -23,16 +23,18 @@ FAILURES = []
 PRODUCED_AT = "2026-11-20T12:00:00Z"
 REPORT_SCHEMA = validate.load_schema(oset.REPORT_SCHEMA)
 
-SET_PATH = PROJECT / "gcd.properties.obligations.json"
+SET_PATH = PROJECT / "gcd.obligations.json"
 SPEC_PATH = PROJECT / "gcd.properties.json"
-POLICY_PATH = PROJECT / "gcd.properties.policy.json"
-LOCK_PATH = PROJECT / "gcd.properties.lock.json"
+POLICY_PATH = PROJECT / "gcd.policy.json"
 SOURCE_PATH = PROJECT / "gcd.ts"
 
+# The standalone property backend runs over the acceptance criteria alone; the gate
+# (tools/gate.py) merges them with the Dafny pass over the same full set.
 SET = oset.load_obligation_set(SET_PATH)
+CRITERIA = {**SET, "obligations": [o for o in SET["obligations"] if o["kind"] == "acceptance-criterion"]}
 SPEC = backend.load_spec(SPEC_PATH)
 POLICY = validate.load_json(POLICY_PATH)
-LOCK = validate.load_json(LOCK_PATH)
+LOCK = engine.make_lock(POLICY, CRITERIA, "project-owner")  # the lock of the criteria view, in memory
 SOURCE = SOURCE_PATH.read_bytes()
 
 
@@ -48,8 +50,8 @@ def heading(title):
 
 
 def build(node, version, source_bytes=SOURCE, source_name=str(SOURCE_PATH), lock=LOCK):
-    return backend.run_and_build(SET, SET_PATH.name, source_bytes, source_name, SPEC, POLICY,
-                                 node, version, PRODUCED_AT, 60, lock)
+    return backend.run_and_build(CRITERIA, "gcd.obligations.json", source_bytes, source_name, SPEC,
+                                 POLICY, node, version, PRODUCED_AT, 60, lock)
 
 
 def main():
@@ -129,19 +131,20 @@ def main():
     check(all(o["evidence"]["cost"]["wall_ms"] >= 0 and o["evidence"]["cost"]["cpu_ms"] > 0
               and o["evidence"]["cost"]["peak_rss_bytes"] > 0 for o in report["obligations"]),
           "the run records wall_ms, cpu_ms and peak_rss_bytes")
-    check(report["decision"]["result"] == "accepted" and engine.replay(POLICY, report, SET, LOCK),
+    check(report["decision"]["result"] == "accepted" and engine.replay(POLICY, report, CRITERIA, LOCK),
           "the policy engine accepts under the lock, and replays its decision",
           f"    {report['decision']}")
-    check(oset.check_coverage(SET, report) == [], "the report covers the Obligation Set exactly")
-    check(LOCK == engine.make_lock(POLICY, SET, LOCK["approved_by"]),
-          "the committed lock is the lock of this policy and this set")
+    check(oset.check_coverage(CRITERIA, report) == [], "the report covers the criteria view exactly")
+    check(engine.make_lock(POLICY, SET, "project-owner")
+          == validate.load_json(PROJECT / "gcd.lock.json"),
+          "the committed gcd lock freezes the full merged set (the gate's lock)")
     again = build(node, version)
     check(again["report_id"] == report["report_id"]
           and {o["obligation_id"]: o["outcome"] for o in again["obligations"]} == outcomes,
           "a second run gives the same report_id and the same outcomes (the sample is seeded)")
 
     heading("A bug in the source fails the criteria it violates, and is named")
-    mutant = SOURCE.decode("utf-8").replace("return a;", "return a + 1;")
+    mutant = SOURCE.decode("utf-8").replace("return Math.abs(a);", "return Math.abs(a) + 1;")
     check(mutant != SOURCE.decode("utf-8"), "(setup) the mutant source differs")
     with tempfile.TemporaryDirectory(prefix="selyth-prop-") as tmp:
         mutant_path = Path(tmp) / "gcd-mutant.ts"
@@ -161,31 +164,35 @@ def main():
         return subprocess.run([sys.executable, str(TOOLS / "property_backend.py"), "test", *args],
                               capture_output=True, text=True)
 
-    base = ("--obligation-set", str(SET_PATH), "--source", str(SOURCE_PATH), "--spec", str(SPEC_PATH),
-            "--policy", str(POLICY_PATH), "--produced-at", PRODUCED_AT)
-    r = run_cli(*base, "--lock", str(LOCK_PATH))
-    check(r.returncode == 0 and json.loads(r.stdout)["decision"]["result"] == "accepted",
-          "CLI: the gcd criteria exit 0 (accepted) under the lock")
     with tempfile.TemporaryDirectory(prefix="selyth-prop-") as tmp:
+        criteria_path = Path(tmp) / "criteria.obligations.json"
+        criteria_path.write_text(json.dumps(CRITERIA), encoding="utf-8")
+        lock_path = Path(tmp) / "lock.json"
+        lock_path.write_text(json.dumps(LOCK), encoding="utf-8")
+        base = ("--obligation-set", str(criteria_path), "--source", str(SOURCE_PATH), "--spec",
+                str(SPEC_PATH), "--policy", str(POLICY_PATH), "--produced-at", PRODUCED_AT)
+        r = run_cli(*base, "--lock", str(lock_path))
+        check(r.returncode == 0 and json.loads(r.stdout)["decision"]["result"] == "accepted",
+              "CLI: the gcd criteria exit 0 (accepted) under the lock")
         mutant_path = Path(tmp) / "gcd-mutant.ts"
         mutant_path.write_text(mutant, encoding="utf-8")
-        r = run_cli("--obligation-set", str(SET_PATH), "--source", str(mutant_path), "--spec",
+        r = run_cli("--obligation-set", str(criteria_path), "--source", str(mutant_path), "--spec",
                     str(SPEC_PATH), "--policy", str(POLICY_PATH), "--produced-at", PRODUCED_AT)
         check(r.returncode == 1 and json.loads(r.stdout)["decision"]["result"] == "rejected",
               "CLI: the mutant exits 1 (rejected)")
-        wrong_set = copy.deepcopy(SET)
+        wrong_set = copy.deepcopy(CRITERIA)
         wrong_set["obligations"][0]["statement"] = "ensures a % result == 0"
         wrong_path = Path(tmp) / "wrong.obligations.json"
         wrong_path.write_text(json.dumps(wrong_set), encoding="utf-8")
         r = run_cli("--obligation-set", str(wrong_path), "--source", str(SOURCE_PATH), "--spec",
-                    str(SPEC_PATH), "--policy", str(POLICY_PATH), "--lock", str(LOCK_PATH),
+                    str(SPEC_PATH), "--policy", str(POLICY_PATH), "--lock", str(lock_path),
                     "--produced-at", PRODUCED_AT)
         out = json.loads(r.stdout) if r.stdout else {}
         check(r.returncode == 1 and any(v["rule_id"] == "INTEGRITY-OBLIGATION-SET-NOT-FROZEN"
                                          for v in out.get("decision", {}).get("violations", [])),
               "CLI: a set the lock does not freeze is rejected at decide (exit 1, named rule)",
               f"    exit {r.returncode}: {out.get('decision', {}).get('violations')}")
-        contract_set = copy.deepcopy(SET)
+        contract_set = copy.deepcopy(CRITERIA)
         contract_set["obligations"][0]["kind"] = "postcondition"
         contract_path = Path(tmp) / "contract.obligations.json"
         contract_path.write_text(json.dumps(contract_set), encoding="utf-8")
@@ -195,7 +202,7 @@ def main():
               "CLI: a contract clause in the property set is refused (exit 2)", f"    {r.stderr.strip()[:120]}")
         bad_spec = Path(tmp) / "bad-spec.json"
         bad_spec.write_text(json.dumps({**SPEC, "samples": 0}), encoding="utf-8")
-        r = run_cli("--obligation-set", str(SET_PATH), "--source", str(SOURCE_PATH), "--spec",
+        r = run_cli("--obligation-set", str(criteria_path), "--source", str(SOURCE_PATH), "--spec",
                     str(bad_spec), "--policy", str(POLICY_PATH), "--produced-at", PRODUCED_AT)
         check(r.returncode == 2 and "samples" in r.stderr, "CLI: a bad sidecar exits 2", r.stderr.strip()[:120])
         r = run_cli(*base)

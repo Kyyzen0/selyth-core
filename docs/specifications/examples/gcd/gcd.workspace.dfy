@@ -4,6 +4,11 @@
 // method here, edit the TypeScript (make gcd-workspace regenerates this file). The caller
 // below is scaffolding written in the specification: it is what proves the precondition.
 
+function Abs(x: int): int
+{
+  if x < 0 then -x else x
+}
+
 // ---- Gcd: GCD-01 .. GCD-04
 method Gcd(a: nat, b: nat) returns (result: nat)
   // selyth:obligation GCD-01 GCD-02 GCD-03
@@ -18,7 +23,7 @@ method Gcd(a: nat, b: nat) returns (result: nat)
     b := a % b;
     a := t;
   }
-  result := a;
+  result := Abs(a);
 }
 
 method UseGcd(a: nat, b: nat)
