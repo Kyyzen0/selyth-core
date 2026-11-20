@@ -143,7 +143,10 @@ def main():
     heading("A bug in the source fails the criteria it violates, and is named")
     mutant = SOURCE.decode("utf-8").replace("return a;", "return a + 1;")
     check(mutant != SOURCE.decode("utf-8"), "(setup) the mutant source differs")
-    bad = build(node, version, source_bytes=mutant.encode("utf-8"), source_name="/tmp/gcd-mutant.ts")
+    with tempfile.TemporaryDirectory(prefix="selyth-prop-") as tmp:
+        mutant_path = Path(tmp) / "gcd-mutant.ts"
+        mutant_path.write_text(mutant, encoding="utf-8")
+        bad = build(node, version, source_bytes=mutant.encode("utf-8"), source_name=str(mutant_path))
     check(not validate.validate(bad, REPORT_SCHEMA), "the failing report is still valid for the schema")
     outcomes = {o["obligation_id"]: o["outcome"] for o in bad["obligations"]}
     check(set(outcomes.values()) == {"failed"} and bad["decision"]["result"] == "rejected"
