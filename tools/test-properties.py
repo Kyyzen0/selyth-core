@@ -144,7 +144,7 @@ def main():
           "a second run gives the same report_id and the same outcomes (the sample is seeded)")
 
     heading("A bug in the source fails the criteria it violates, and is named")
-    mutant = SOURCE.decode("utf-8").replace("return a;", "return a + 1;")
+    mutant = SOURCE.decode("utf-8").replace("return Math.abs(a);", "return Math.abs(a) + 1;")
     check(mutant != SOURCE.decode("utf-8"), "(setup) the mutant source differs")
     with tempfile.TemporaryDirectory(prefix="selyth-prop-") as tmp:
         mutant_path = Path(tmp) / "gcd-mutant.ts"
