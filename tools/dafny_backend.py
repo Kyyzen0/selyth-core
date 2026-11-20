@@ -256,11 +256,18 @@ def instantiate(source, obligation_id, clause, hypotheses=()):
 
 
 def resolve_dafny(path=None):
-    candidate = path or os.environ.get("SELYTH_DAFNY") or "dafny"
     from shutil import which
+    explicit = path or os.environ.get("SELYTH_DAFNY")
+    candidate = explicit or "dafny"
     found = which(candidate)
+    tried = repr(candidate)
+    if not found and not explicit:
+        default = Path.home() / ".local" / "opt" / "dafny" / "dafny"
+        tried += f" and {str(default)!r}"
+        if default.is_file() and os.access(default, os.X_OK):
+            found = str(default)
     if not found:
-        raise BackendError(f"Dafny not found ({candidate!r}); pass --dafny or set SELYTH_DAFNY")
+        raise BackendError(f"Dafny not found ({tried}); pass --dafny or set SELYTH_DAFNY")
     return Path(found).resolve()
 
 

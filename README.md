@@ -112,7 +112,6 @@ tools/
   bench.py                            Benchmark: full pipeline run on an example, per-obligation cost report (make bench)
   check_example.py                    Whole gate on one example in one command (make check)
   test-bench.py                       Bench schema + summarise() tests (no Dafny needed)
-ts/                                   TypeScript port of the adapter (src/), tests against the Python adapter (test/)
   test-ledger.py                      The ledger: 20 obligations proven, one bug per obligation, vacuity
   test-gcd.py                         The third-party gcd example: translation, 4 obligations proven, mutants
   test-scenarios.py                   M5 negative scenarios, end to end with Dafny
@@ -134,6 +133,7 @@ ts/                                   TypeScript port of the adapter (src/), tes
   test-validation.py                  Primary schema suite: legacy fixtures + hardening
   minischema.py                       Scoped JSON Schema validator (legacy)
   test-schemas.py                     Schema fixtures: 23 cases, 21 must fail
+ts/                                   TypeScript port of the adapter (src/), tests against the Python adapter (test/)
 ```
 
 ## Running the schema tests
