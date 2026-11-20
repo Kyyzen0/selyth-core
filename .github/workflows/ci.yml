@@ -19,12 +19,13 @@ concurrency:
 
 jobs:
   test-python:
-    # Self-hosted runner (any Linux, x64 or arm64): GitHub-hosted runners are refused while
-    # the private-repo Actions quota is exhausted, and a self-hosted runner consumes no
-    # GitHub-hosted minutes. Switch back to `ubuntu-24.04` (not `latest`: 26.04 no longer
-    # ships Python 3.9, the oldest interpreter the project supports) when hosted minutes
-    # are available again. Docker setup on an always-on machine: docs/operations/self-hosted-runner.md
-    runs-on: [self-hosted, linux]
+    # Any self-hosted runner (Docker container on Linux, or native macOS): GitHub-hosted
+    # runners are refused while the private-repo Actions quota is exhausted, and a
+    # self-hosted runner consumes no GitHub-hosted minutes. Switch back to `ubuntu-24.04`
+    # (not `latest`: 26.04 no longer ships Python 3.9, the oldest interpreter the project
+    # supports) when hosted minutes are available again.
+    # Setup: docs/operations/self-hosted-runner.md
+    runs-on: [self-hosted]
     strategy:
       fail-fast: false
       matrix:
@@ -38,7 +39,7 @@ jobs:
         run: make test-python
 
   test-ts:
-    runs-on: [self-hosted, linux]
+    runs-on: [self-hosted]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -53,7 +54,7 @@ jobs:
         run: make test-properties
 
   test-dafny:
-    runs-on: [self-hosted, linux]
+    runs-on: [self-hosted]
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4

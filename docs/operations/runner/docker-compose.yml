@@ -26,7 +26,7 @@ services:
     volumes:
       - runner-home:/home/runner
     # Default labels (self-hosted, Linux, X64/ARM64) are added by config.sh itself;
-    # the workflow matches on [self-hosted, linux], so no custom label is needed.
+    # the workflow matches on [self-hosted], so no custom label is needed.
     # Do NOT mount /var/run/docker.sock: the jobs of this repo never run docker.
     command:
       - sh
