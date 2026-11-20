@@ -99,12 +99,18 @@ def build_parser():
     ap.add_argument("--time-limit", type=backend._positive_int, default=backend.DEFAULT_TIME_LIMIT)
     ap.add_argument("--produced-at", help="RFC3339 timestamp recorded in the report (default: now)")
     ap.add_argument("-o", dest="out", help="write the bench report JSON here instead of stdout")
+    ap.add_argument("--source", help="TypeScript source: with --spec, the report is the merged gate "
+                                     "report (Dafny + property tests), not the Dafny-only one")
+    ap.add_argument("--spec", help="property-test sidecar (with --source)")
+    ap.add_argument("--node", help="path to node (or set SELYTH_NODE)")
     return ap
 
 
 def main(argv):
     args = build_parser().parse_args(argv[1:])
     try:
+        import gate
+        import property_backend
         document = oset.load_obligation_set(args.obligation_set)
         policy = validate.load_json(args.policy)
         if validate.validate(policy, validate.load_schema(
@@ -114,13 +120,24 @@ def main(argv):
         dafny = backend.resolve_dafny(args.dafny)
         version, solver = backend.tool_versions(dafny)
         workspace = Path(args.workspace)
-        ir = ts_adapter.lower(document, version)
-        report = backend.build_report(
-            ir, document, policy, workspace.read_bytes(), workspace.name,
-            args.produced_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            dafny, solver, version, args.resource_limit, args.time_limit, lock)
-    except (backend.BackendError, oset.ObligationSetError, validate.SchemaError, OSError,
-            json.JSONDecodeError, ValueError) as exc:
+        produced_at = args.produced_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        if args.source and args.spec:
+            source = Path(args.source)
+            node = property_backend.resolve_node(args.node)
+            node_version = property_backend.node_version(node)
+            spec = property_backend.load_spec(args.spec)
+            report = gate.run_gate(document, Path(args.obligation_set).name, workspace.read_bytes(),
+                                   workspace.name, policy, produced_at, dafny, solver, version,
+                                   args.resource_limit, args.time_limit, lock,
+                                   source_bytes=source.read_bytes(), source_name=str(source),
+                                   spec=spec, node=node, node_version=node_version)
+        else:
+            ir = ts_adapter.lower(document, version)
+            report = backend.build_report(
+                ir, document, policy, workspace.read_bytes(), workspace.name,
+                produced_at, dafny, solver, version, args.resource_limit, args.time_limit, lock)
+    except (backend.BackendError, gate.GateError, property_backend.BackendError, oset.ObligationSetError,
+            validate.SchemaError, OSError, json.JSONDecodeError, ValueError) as exc:
         print(f"[ERROR] {exc}", file=sys.stderr)
         return 2
     bench = summarise(report)

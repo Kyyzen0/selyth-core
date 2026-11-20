@@ -63,11 +63,12 @@ backend: single machine, no isolation claim.
 
 ## Example
 
-[`examples/gcd/`](examples/gcd/README.md) carries `gcd.properties.obligations.json` (two
-acceptance criteria: the result divides both inputs; the result is at most each input),
-`gcd.properties.json` (200 samples, `a` and `b` in 1..40, seed 20261120 — inside the
-contract precondition's domain), `gcd.properties.policy.json` (accept `property-tested` for
-acceptance criteria, with a `cost_budget`) and the human-approved
-`gcd.properties.lock.json`. `make test-properties` runs `tools/test-properties.py`, which
-checks the report against the schema, the decision under the lock, replay, determinism, and
-that a one-line bug in `gcd.ts` is rejected with `BLOCK-FAILED` naming each criterion.
+The [gcd example](examples/gcd/README.md) carries two acceptance criteria in its single merged
+Obligation Set (the result divides both inputs; the result is at most each input) and the
+sidecar `gcd.properties.json` (200 samples, `a` and `b` in 1..40, seed 20261120 — inside the
+contract precondition's domain). In the normal flow the **gate** ([`gate.md`](gate.md)) runs
+this backend as part of the one merged report; the backend also runs standalone
+(`property_backend.py test --obligation-set <criteria view> ...`). `make test-properties` runs
+`tools/test-properties.py`, which checks the report against the schema, the decision under the
+lock, replay, determinism, and that a one-line bug in `gcd.ts` is rejected with `BLOCK-FAILED`
+naming each criterion.
