@@ -1,0 +1,18 @@
+{
+  "task_id": "T-7f3a91c2",
+  "title": "Fix the off-by-one in the fee rounding of a payment module",
+  "prompt": "The fee function in src/fees.ts rounds one unit too high when the amount is an exact multiple of the divisor. Fix it so every obligation in the frozen Obligation Set holds. You may only modify src/fees.ts. You have 20 minutes and at most 15 model calls.",
+  "source": {
+    "project": "example-payments (fictional; the real corpus uses external projects)",
+    "licence": "MIT",
+    "revision": "v1.4.2 (commit 9c1f0e2)"
+  },
+  "files": [
+    {"path": "src/fees.ts", "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000001"},
+    {"path": "README.md", "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000002"}
+  ],
+  "modifiable": ["src/fees.ts"],
+  "obligations": {"path": "spec/fees.obligations.json", "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000003"},
+  "oracle": {"path": "oracle/fees.oracle.json", "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000004"},
+  "budget": {"max_minutes": 20, "max_model_calls": 15}
+}

@@ -54,6 +54,7 @@ It does not claim repository-scale verification. The strongest frontier agent fu
 ```
 MANIFESTO.md                          Founding principles, revised
 README.md                             This file
+CONTRIBUTING.md                       How to run the tests and propose a change
 LICENSE                               MIT (ADR-005)
 .github/workflows/ci.yml              CI: Python suites on 3.9-3.13, TypeScript port, Dafny backend
 docs/
@@ -92,6 +93,12 @@ docs/
   research/
     prior-art.md                      Comparative analysis of prior art
     technical-risks.md                Prioritised risk register
+  evaluation/
+    protocol.md                       M6 evaluation protocol (harness reference)
+    tasks.json                        scripted corpus (23 submissions) for harness self-tests
+    task-schema.json                  M6-Lite task manifest schema (ADR-004); test-task-schema.py
+    task-selection.md                 the curator's checklist for selecting the 6 real tasks
+    task.example.json                 a valid example manifest
   rapport-final.md                    Phase C report, in French
 Makefile                              `make test`: builds the pinned venv, runs all schema tests
 requirements.in / requirements.txt    Direct dependencies / hash-locked environment
@@ -165,4 +172,4 @@ The full test suite needs Python 3.9 or newer, Node 24 or newer and Dafny 4.11.0
 
 MIT — see [`LICENSE`](LICENSE), [ADR-005](docs/decisions/ADR-005-mit-licence.md) and D-12 in the [decision register](docs/architecture/decision-register.md). The architecture assumes permissive licensing throughout and no dependency on a proprietary or paid component, because a €0, single-maintainer project cannot absorb one. The dependency licence audit ADR-005 records is complete for the pinned set: the hash-locked Python requirements (MIT, plus PSF-2.0 for typing-extensions), the npm lockfile (ajv and @types/node MIT, TypeScript Apache-2.0) and the Dafny/Boogie/Z3 subprocess toolchain (MIT).
 
-Community contributions are anticipated but not yet structured. The most likely useful contributions are backend adapters, because the adapter contract is designed to make them additive — but that contract has not yet survived contact with a second implementation, which is exactly why V0.1 ships one.
+Community contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). The most likely useful contributions are backend adapters, because the adapter contract is designed to make them additive — but that contract has not yet survived contact with a second implementation, which is exactly why V0.1 ships one.
