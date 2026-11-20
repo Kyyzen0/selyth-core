@@ -163,6 +163,26 @@ def _judge(entry, set_obligation, policy, evaluated, waivers_allowed):
     if RANK[kind] < RANK[required]:
         return _violation("BLOCK-EVIDENCE-BELOW-REQUIRED",
                           f"{kind!r} evidence is weaker than the required {required!r}", oid), None
+    budget = policy.get("cost_budget")
+    if not isinstance(budget, dict):
+        budget = {}
+    cost = evidence.get("cost")
+    if not isinstance(cost, dict):
+        cost = {}
+    for metric, ceiling in (("resource_units", "max_resource_units"),
+                            ("peak_rss_bytes", "max_peak_rss_bytes"),
+                            ("wall_ms", "deep_wall_ms")):
+        limit = budget.get(ceiling)
+        if limit is None:
+            continue
+        if metric not in cost:
+            return _violation("BLOCK-COST-BUDGET",
+                              f"the policy caps {ceiling} at {limit} but the report records no {metric}",
+                              oid), None
+        if cost[metric] > limit:
+            return _violation("BLOCK-COST-BUDGET",
+                              f"cost {metric} {cost[metric]} exceeds the policy ceiling "
+                              f"{ceiling} {limit}", oid), None
     for rule in policy["rules"]:
         evaluated.add(rule["rule_id"])
         if not _applies(rule, set_obligation):
