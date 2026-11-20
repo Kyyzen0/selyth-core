@@ -1,0 +1,41 @@
+# Self-hosted runner for Kyyzen0/selyth-core, as a Docker container on an always-on
+# machine (e.g. a Mac with Docker Desktop). Keep this directory OUTSIDE the repository
+# (e.g. ~/selyth-runner) and never commit the .env file that holds the registration token.
+#
+#   cp docs/operations/runner/{Dockerfile,docker-compose.yml} ~/selyth-runner/
+#   # Settings -> Actions -> Runners -> New self-hosted runner -> Linux, copy the token:
+#   echo 'RUNNER_TOKEN=<token from the GitHub page>' > ~/selyth-runner/.env
+#   chmod 600 ~/selyth-runner/.env
+#   cd ~/selyth-runner && docker compose up -d --build
+#
+# The named volume keeps the registration (.runner/.credentials) and the job workspace
+# (_work, incl. the project venv) across container restarts; on restart the container
+# skips config.sh if the runner is already registered, so the 1-hour token is only
+# needed for the first registration. To re-register from scratch: docker compose down -v,
+# put a fresh token in .env, docker compose up -d --build.
+services:
+  runner:
+    build: .
+    image: selyth-runner:local
+    container_name: selyth-runner
+    restart: unless-stopped
+    environment:
+      REPO_URL: https://github.com/Kyyzen0/selyth-core
+      RUNNER_NAME: ${RUNNER_NAME:-selyth-docker}
+      RUNNER_TOKEN: "${RUNNER_TOKEN:?set RUNNER_TOKEN in .env, from Settings > Actions > Runners}"
+    volumes:
+      - runner-home:/home/runner
+    # Default labels (self-hosted, Linux, X64/ARM64) are added by config.sh itself;
+    # the workflow matches on [self-hosted, linux], so no custom label is needed.
+    # Do NOT mount /var/run/docker.sock: the jobs of this repo never run docker.
+    command:
+      - sh
+      - -c
+      - |
+        if [ ! -f .runner ]; then
+          ./config.sh --unattended --url "$$REPO_URL" --token "$$RUNNER_TOKEN" \
+            --name "$$RUNNER_NAME" --disableupdate
+        fi
+        exec ./run.sh
+volumes:
+  runner-home:
