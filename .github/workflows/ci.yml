@@ -1,0 +1,78 @@
+# CI for Selyth Core: everything the Makefile can run, on every push and PR.
+#   test-python   all Python suites, on every supported interpreter (>= 3.9)
+#   test-ts       the TypeScript port, byte-compared against the Python adapter (Node >= 24)
+#   test-dafny    the Dafny backend and the M5/M6 harnesses against a real Dafny 4.11.0
+#                 with its bundled z3 4.12.1 (the versions the backend pins)
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test-python:
+    # ubuntu-24.04, not latest: latest is 26.04, which no longer ships Python 3.9
+    # (the oldest interpreter the project supports).
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: make test-python
+        run: make test-python
+
+  test-ts:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: make test-ts
+        run: make test-ts
+
+  test-dafny:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install the pinned Dafny 4.11.0 (bundled z3 4.12.1) where the backend looks for it
+        run: |
+          curl -fsSL -o dafny.zip \
+            https://github.com/dafny-lang/dafny/releases/download/v4.11.0/dafny-4.11.0-x64-ubuntu-22.04.zip
+          unzip -q dafny.zip -d dafny-extract
+          # The zip layout varies; what the backend needs is one directory holding
+          # both the `dafny` executable and its `z3/` tree. Find it, don't guess it.
+          DAFNY_HOME=""
+          for d in $(find dafny-extract -type d -name z3 -printf '%h\n'); do
+            if [ -f "$d/dafny" ]; then DAFNY_HOME="$d"; break; fi
+          done
+          if [ -z "$DAFNY_HOME" ]; then
+            echo "no dafny executable next to a z3/ tree in the archive:" >&2
+            find dafny-extract -maxdepth 3 | head -30 >&2
+            exit 1
+          fi
+          mkdir -p "$HOME/.local/opt/dafny"
+          cp -a "$DAFNY_HOME/." "$HOME/.local/opt/dafny/"
+          chmod +x "$HOME/.local/opt/dafny/dafny"
+          # GITHUB_PATH only applies to later steps; use the absolute path here.
+          echo "$HOME/.local/opt/dafny" >> "$GITHUB_PATH"
+          "$HOME/.local/opt/dafny/dafny" --version
+          ls "$HOME/.local/opt/dafny/z3/bin/"
+      - name: make test-dafny test-eval
+        run: make test-dafny test-eval

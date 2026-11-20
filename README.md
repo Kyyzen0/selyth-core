@@ -54,6 +54,8 @@ It does not claim repository-scale verification. The strongest frontier agent fu
 ```
 MANIFESTO.md                          Founding principles, revised
 README.md                             This file
+LICENSE                               MIT (ADR-005)
+.github/workflows/ci.yml              CI: Python suites on 3.9-3.13, TypeScript port, Dafny backend
 docs/
   architecture/
     overview.md                       Ecosystem architecture, Core → Language
@@ -161,6 +163,6 @@ The full test suite needs Python 3.9 or newer, Node 24 or newer and Dafny 4.11.0
 
 ## Licence and contributing
 
-Not yet chosen; see the decision register. The architecture assumes permissive licensing throughout and no dependency on a proprietary or paid component, because a €0, single-maintainer project cannot absorb one. Licence verification for every dependency is a blocking pre-implementation task and has not been completed for all of them.
+MIT — see [`LICENSE`](LICENSE), [ADR-005](docs/decisions/ADR-005-mit-licence.md) and D-12 in the [decision register](docs/architecture/decision-register.md). The architecture assumes permissive licensing throughout and no dependency on a proprietary or paid component, because a €0, single-maintainer project cannot absorb one. The dependency licence audit ADR-005 records is complete for the pinned set: the hash-locked Python requirements (MIT, plus PSF-2.0 for typing-extensions), the npm lockfile (ajv and @types/node MIT, TypeScript Apache-2.0) and the Dafny/Boogie/Z3 subprocess toolchain (MIT).
 
 Community contributions are anticipated but not yet structured. The most likely useful contributions are backend adapters, because the adapter contract is designed to make them additive — but that contract has not yet survived contact with a second implementation, which is exactly why V0.1 ships one.
