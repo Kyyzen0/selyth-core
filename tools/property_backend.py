@@ -251,9 +251,14 @@ def _child_cost(before, after):
     return {"cpu_ms": max(0, int(cpu_s * 1000)), "peak_rss_bytes": after.ru_maxrss * rss_unit}
 
 
-def run_and_build(obligation_set, set_name, source_bytes, source_name, spec, policy, node, node_ver,
-                  produced_at, time_limit, lock=None):
-    """Run the property tests and build the report. Does the I/O (one Node process)."""
+def run_criteria(obligation_set, spec, source_bytes, source_name, node, node_ver, time_limit):
+    """Run the property tests over the acceptance-criterion obligations; return their report entries.
+
+    Does the I/O (one Node process). Shared with tools/gate.py, which merges these entries
+    with the Dafny backend's into one report. `obligation_set` may be a view containing only
+    the criteria; the per-obligation digests are computed from the obligations alone, so they
+    are the same as in the full set.
+    """
     source = source_bytes.decode("utf-8")
     canonical = oset.canonical_form(obligation_set)
     for obligation in canonical["obligations"]:
@@ -274,13 +279,7 @@ def run_and_build(obligation_set, set_name, source_bytes, source_name, spec, pol
                            Path(source_name).name)
     run_outcome, result, run_diagnostics, cost = run_property(node, runner, time_limit)
 
-    set_digest = oset.set_digest(obligation_set)
     digests = oset.obligation_digests(obligation_set)
-    spec_digest = sha256_bytes(json.dumps(spec, sort_keys=True, separators=(",", ":")).encode("utf-8"))
-    policy_digest = engine.policy_digest(policy)
-    identity = hashlib.sha256(json.dumps(
-        [set_digest, sha256_bytes(source_bytes), spec_digest, policy_digest, node_ver],
-        sort_keys=True).encode()).hexdigest()[:16]
     tool = {"name": "node", "version": node_ver}
     domain_desc = ", ".join(f"{n} in {spec['params'][n]['min']}..{spec['params'][n]['max']}"
                             for n in sorted(spec["params"]))
@@ -323,6 +322,20 @@ def run_and_build(obligation_set, set_name, source_bytes, source_name, spec, pol
         if diagnostics:
             entry["diagnostics"] = diagnostics
         results.append(entry)
+    return results
+
+
+def run_and_build(obligation_set, set_name, source_bytes, source_name, spec, policy, node, node_ver,
+                  produced_at, time_limit, lock=None):
+    """Run the property tests and build the standalone report. Does the I/O (one Node process)."""
+    results = run_criteria(obligation_set, spec, source_bytes, source_name, node, node_ver, time_limit)
+    set_digest = oset.set_digest(obligation_set)
+    spec_digest = sha256_bytes(json.dumps(spec, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+    policy_digest = engine.policy_digest(policy)
+    identity = hashlib.sha256(json.dumps(
+        [set_digest, sha256_bytes(source_bytes), spec_digest, policy_digest, node_ver],
+        sort_keys=True).encode()).hexdigest()[:16]
+    tool = {"name": "node", "version": node_ver}
     trusted = policy["approval"] != "unverified"
     report = {
         "selyth_report_version": "0.1.0",

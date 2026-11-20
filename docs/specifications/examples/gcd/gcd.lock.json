@@ -1,6 +1,6 @@
 {
   "approved_by": "project-owner",
-  "obligation_set_digest": "sha256:b803ca9e012d053f0cd822fabd70e4b34c074b781a203de60f46c66ddc200c85",
-  "policy_digest": "sha256:95a8f1863c1878bd7948ca937af3e875b2eda7b814fd9ba8e48ea976158d1091",
+  "obligation_set_digest": "sha256:172b3987bddb1ffc6fd4938dd04a4b196efcd354490cc0bf196dee5610a1bedf",
+  "policy_digest": "sha256:e36962b2c898e6be2ed167a16ed3ec5c38ec613fcb5a662e387526b6c2d664fd",
   "selyth_lock_version": "0.1.0"
 }

@@ -365,7 +365,8 @@ def evidence(outcome, tool, scope, assumptions, cost):
             "producer_tool": tool, "scope": scope, "assumptions": assumptions, "cost": cost}
 
 
-def obligation_results(ir, source, workspace_name, dafny, solver, version, resource_limit, time_limit):
+def obligation_results(ir, source, workspace_name, dafny, solver, version, resource_limit, time_limit,
+                       include_unsupported=True):
     tool = {"name": BACKEND_NAME, "version": version}
     spec_version = ir["obligation_set"]["specification_version"]
     results = []
@@ -403,11 +404,12 @@ def obligation_results(ir, source, workspace_name, dafny, solver, version, resou
         if diagnostics:
             entry["diagnostics"] = diagnostics
         results.append(entry)
-    for item in ir["unsupported"]:
-        scope = f"not run: the adapter could not lower this obligation to a {BACKEND_NAME} clause"
-        results.append({**base(item, item["affected_components"]), "outcome": "not-run",
-                        "evidence": evidence("not-run", tool, scope, [], {"timed_out": False}),
-                        "diagnostics": [item["reason"]]})
+    if include_unsupported:
+        for item in ir["unsupported"]:
+            scope = f"not run: the adapter could not lower this obligation to a {BACKEND_NAME} clause"
+            results.append({**base(item, item["affected_components"]), "outcome": "not-run",
+                            "evidence": evidence("not-run", tool, scope, [], {"timed_out": False}),
+                            "diagnostics": [item["reason"]]})
     return sorted(results, key=lambda r: r["obligation_id"])
 
 
@@ -415,8 +417,12 @@ def sha256_bytes(data):
     return "sha256:" + hashlib.sha256(data).hexdigest()
 
 
-def build_report(ir, obligation_set, policy, workspace_bytes, workspace_name, produced_at,
-                 dafny, solver, version, resource_limit, time_limit, lock=None):
+def check_workspace(ir, obligation_set, workspace_bytes):
+    """The consistency checks between IR, Obligation Set and workspace; return the decoded source.
+
+    Shared with tools/gate.py, which runs this backend over the lowerable units only and lets
+    another backend cover the rest.
+    """
     source = workspace_bytes.decode("utf-8")
     set_digest = oset.set_digest(obligation_set)
     if ir["obligation_set"]["digest"] != set_digest:
@@ -430,6 +436,13 @@ def build_report(ir, obligation_set, policy, workspace_bytes, workspace_name, pr
         raise BackendError("the workspace has markers for " + ", ".join(orphans) + " but the Obligation "
                            "Set does not declare them: a detached obligation must stay visible, so the "
                            "workspace and the set must be regenerated together (exit 2, no report)")
+    return source
+
+
+def build_report(ir, obligation_set, policy, workspace_bytes, workspace_name, produced_at,
+                 dafny, solver, version, resource_limit, time_limit, lock=None):
+    source = check_workspace(ir, obligation_set, workspace_bytes)
+    set_digest = oset.set_digest(obligation_set)
     policy_digest = engine.policy_digest(policy)
     results = obligation_results(ir, source, workspace_name, dafny, solver, version,
                                  resource_limit, time_limit)
