@@ -88,7 +88,7 @@ The harness runs whatever submissions it is given. The choices that decide wheth
 
 - This protocol remains the reference for the **harness and the measurements**.
 - ADR-004 is the reference for the **operational parameters**: agent and model, comparison arms, number of runs, per-run limits, the absence of any reduction, human review and isolation.
-- The task corpus is still to be produced by an independent curator, but its constraints and governance are already decided in the ADR.
+- The task corpus is still to be produced by an independent curator, but its constraints and governance are already decided in the ADR. Its shape is fixed too: each task is a manifest validated against [`task-schema.json`](task-schema.json) (hygiene-checked by `tools/test-task-schema.py`, example in [`task.example.json`](task.example.json)), and [`task-selection.md`](task-selection.md) is the curator's selection checklist and launch gate.
 
 What remains are concrete prerequisites before launch, not open choices:
 

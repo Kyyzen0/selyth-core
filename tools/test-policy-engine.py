@@ -563,6 +563,75 @@ def shuffle_keys(value, rng):
     return value
 
 
+def _mutate(node, rng, depth=0):
+    """One random structural mutation of a parsed JSON value, in place.
+
+    With probability 0.6 the node is left alone, so a share of the trials stay
+    fully valid and acceptance stays reachable (the safety check must not be
+    vacuous); the rest get a dropped key, a changed value, an unknown key, a
+    removed list item or a random replacement.
+    """
+    if rng.random() < 0.6 or depth > 4:
+        return
+    junk = [None, True, 0, -1, "", "x", [], {}, 1.5]
+    if isinstance(node, dict) and node:
+        keys = list(node)
+        r = rng.random()
+        if r < 0.25:
+            node.pop(rng.choice(keys))
+        elif r < 0.55:
+            _mutate(node[rng.choice(keys)], rng, depth + 1)
+        elif r < 0.8:
+            node[rng.choice(keys)] = rng.choice(junk)
+        else:
+            node[f"unknown-{rng.randrange(1000)}"] = rng.choice(junk)
+    elif isinstance(node, list) and node:
+        r = rng.random()
+        if r < 0.4:
+            node.pop(rng.randrange(len(node)))
+        elif r < 0.8:
+            _mutate(node[rng.randrange(len(node))], rng, depth + 1)
+        else:
+            node.append(rng.choice(junk))
+
+
+def check_fuzz():
+    heading("Fuzz (fixed seed): decide is total, deterministic and never unsafe on mutated inputs")
+    rng = random.Random(20261120)
+    base_policy, base_set = accept_all_policy(), the_set()
+    base_report = build_report(base_policy, base_set)
+    trials = accepted = 0
+    for _ in range(300):
+        policy = copy.deepcopy(base_policy)
+        report = copy.deepcopy(base_report)
+        document = copy.deepcopy(base_set)
+        for doc in (policy, report, document):
+            _mutate(doc, rng)
+        trials += 1
+        try:
+            d1 = engine.decide(policy, report, document)
+            d2 = engine.decide(policy, report, document)
+        except Exception as exc:
+            check(False, f"decide raised on a mutated input (trial {trials})", f"    {exc!r}")
+            return
+        ok = d1 == d2 and not validate.validate(d1, DECISION_SCHEMA)
+        if d1["result"] == "accepted":
+            accepted += 1
+            by_id = {o["obligation_id"]: o for o in document["obligations"]}
+            ok = ok and all(
+                e["outcome"] == "proven" and e["evidence"]["kind"] in engine.MACHINE_CHECKED
+                and engine.RANK[e["evidence"]["kind"]]
+                >= engine.RANK[by_id[e["obligation_id"]]["required_evidence_kind"]]
+                for e in report["obligations"])
+        if not ok:
+            check(False, f"fuzz trial {trials}: decision not deterministic, not schema-valid or unsafe",
+                  f"    {json.dumps(d1)[:400]}")
+            return
+    check(trials == 300, f"fuzzed {trials} mutated input triples with a fixed seed (random.Random(20261120))")
+    check(accepted > 0, f"acceptance stays reachable under mutation ({accepted} accepted): "
+                        "the safety assertion above is not vacuous")
+
+
 def check_determinism():
     heading("Determinism, replayability, purity")
     document, policy = the_set(), copy.deepcopy(legacy.good_policy)
@@ -845,6 +914,7 @@ def main():
     check_scenarios()
     check_lattice_and_digest()
     check_exhaustive_safety()
+    check_fuzz()
     check_determinism()
     check_lock()
     check_input_validation()

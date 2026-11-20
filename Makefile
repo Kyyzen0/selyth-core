@@ -34,6 +34,9 @@ test-python: venv
 	@echo "== TypeScript adapter: Verification IR determinism"
 	$(VPY) tools/test-ts-adapter.py
 	@echo
+	@echo "== M6-Lite task manifest schema (docs/evaluation/task-schema.json)"
+	$(VPY) tools/test-task-schema.py
+	@echo
 	@echo "== Legacy suite (tools/test-schemas.py, tools/minischema.py), kept as a secondary check"
 	$(VPY) tools/test-schemas.py
 

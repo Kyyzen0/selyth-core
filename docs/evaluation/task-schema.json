@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Kyyzen0/selyth-core/docs/evaluation/task-schema.json",
+  "title": "M6-Lite task manifest",
+  "description": "One real task of the M6-Lite task set, as frozen by the independent curator (ADR-004 section 2). The task set is secret until launch; this schema fixes what a manifest contains, so that the launch check can verify shape and digests without reading the content. Validated and linted by tools/test-task-schema.py.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["task_id", "title", "prompt", "source", "files", "modifiable", "obligations", "oracle", "budget"],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{8,64}$",
+      "description": "Opaque identifier chosen by the curator; it must reveal nothing about the task."
+    },
+    "title": {"type": "string", "minLength": 1},
+    "prompt": {
+      "type": "string",
+      "minLength": 10,
+      "description": "The exact statement handed to the agent. Identical in both arms; any wording difference between arms is a protocol violation."
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project", "licence", "revision"],
+      "properties": {
+        "project": {"type": "string", "minLength": 1, "description": "The external project the starting code comes from."},
+        "licence": {
+          "type": "string",
+          "enum": ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "0BSD", "Unlicense", "MIT-0"],
+          "description": "Permissive licences only (ADR-004 section 2); the code must also sit inside the pure TypeScript subset of ts-to-dafny.md."
+        },
+        "revision": {"type": "string", "minLength": 1, "description": "Commit, tag or archive the code was taken from."}
+      }
+    },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/hashed_artefact"},
+      "description": "The starting code, path by path, each with its sha256 digest."
+    },
+    "modifiable": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/path"},
+      "description": "The only paths the agent may change. A submission touching anything else is refused by the controller. Paths are relative and may not contain '..'."
+    },
+    "obligations": {
+      "$ref": "#/$defs/hashed_artefact",
+      "description": "The frozen Obligation Set for this task, written by the curator and read-only for the agent."
+    },
+    "oracle": {
+      "$ref": "#/$defs/hashed_artefact",
+      "description": "Digest of the frozen oracle for this task. The oracle itself lives only in the private evaluation repository and is never shipped with the task."
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_minutes", "max_model_calls"],
+      "properties": {
+        "max_minutes": {"const": 20, "description": "Per-run wall-clock limit, fixed by ADR-004 section 3."},
+        "max_model_calls": {"const": 15, "description": "Per-run model-call limit, retries and automatic summaries included; fixed by ADR-004 section 3. A runner that cannot measure it refuses the official launch."}
+      }
+    }
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "path": {
+      "type": "string",
+      "pattern": "^([A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)*$",
+      "description": "A relative path whose segments contain no '.' or '..'."
+    },
+    "hashed_artefact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "digest"],
+      "properties": {
+        "path": {"$ref": "#/$defs/path"},
+        "digest": {"$ref": "#/$defs/digest"}
+      }
+    }
+  }
+}
