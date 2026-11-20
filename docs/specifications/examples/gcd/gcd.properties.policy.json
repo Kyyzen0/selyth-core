@@ -1,0 +1,21 @@
+{
+  "policy_version": "0.1.0",
+  "policy_id": "policy-gcd-properties",
+  "title": "Gcd property-test policy",
+  "description": "Acceptance criteria are checked empirically: property-tested evidence on the sampled domain accepts them. The contract clauses (GCD-01..GCD-04) stay with the Dafny backend and its own policy; the two reports never mix.",
+  "approved_by": "project-owner",
+  "approval": "git-signed-commit",
+  "rules": [
+    {
+      "rule_id": "RULE-PROPERTY-TESTED",
+      "rationale": "An acceptance criterion is an empirical claim: a deterministic sample of inputs is the evidence the set asks for (property-tested), never a proof.",
+      "applies_to": { "obligation_kinds": ["acceptance-criterion"] },
+      "requires": { "min_evidence_kind": "property-tested" },
+      "action": "accept"
+    }
+  ],
+  "cost_budget": { "deep_wall_ms": 30000, "max_peak_rss_bytes": 1073741824 },
+  "suppression": { "mode": "forbidden", "requires_human_approval": true, "recorded_in_report": true },
+  "on_unknown_evidence": "reject",
+  "on_timeout": "reject"
+}

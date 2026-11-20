@@ -108,6 +108,22 @@ def check_units():
     check(backend.marker_count(source, "OBL-0007") == 1 and backend.marker_count(source, "OBL-9999") == 0,
           "markers are counted per obligation")
 
+    heading("Workspace markers must belong to the Obligation Set (anti-detachment, F2)")
+    doc = osets.demo()
+    ir = adapter.lower(doc, "4.11.0")
+    orphan_ws = (WORKSPACE.read_text(encoding="utf-8")
+                 + "method Ghost()\n  // selyth:obligation OBL-9999\n{ }\n")
+    check(sorted(set(backend.workspace_marker_ids(source))) == ["OBL-0007", "OBL-0008", "OBL-0009"]
+          and "OBL-9999" in backend.workspace_marker_ids(orphan_ws),
+          "workspace_marker_ids lists every id any marker names")
+    try:
+        backend.build_report(ir, doc, POLICY, orphan_ws.encode("utf-8"), "queue.workspace.dfy",
+                             PRODUCED_AT, None, None, "4.11.0", 1, 1)
+        check(False, "an orphan marker is refused before any Dafny run", "    a report was produced")
+    except backend.BackendError as exc:
+        check("OBL-9999" in str(exc) and "does not declare" in str(exc),
+              "a marker for an id the set does not declare is refused: exit 2, no report", f"    {exc}")
+
     heading("Several obligations at one marker: postconditions are verified under the preconditions")
     shared = "method M()\n  // selyth:obligation A B C\n{ }"
     unit = lambda oid, kw: {"obligation_id": oid, "clause": {"keyword": kw, "expression": "e"}}
@@ -125,6 +141,34 @@ def check_units():
           "the clauses share the marker's line, so line numbers are preserved")
     check(backend.instantiate(shared, "A", "requires a").split("\n")[1] == "  requires a",
           "a precondition is instantiated alone")
+
+    heading("A loop clause is verified under the contract of the enclosing declaration")
+    loop_src = ("method M(a: nat)\n  // selyth:obligation A D\n{\n  var b := a;\n"
+                "  while b != 0\n    // selyth:obligation I\n  {\n    b := b - 1;\n  }\n}")
+    clauses = {"A": "requires a > 0", "D": "decreases a", "I": "invariant b <= a"}
+    unit_i = {"obligation_id": "I", "clause": {"keyword": "invariant", "expression": "b <= a"}}
+    check(backend.contract_marker_line(loop_src, "I") == 1
+          and backend.contract_marker_line(loop_src, "A") is None,
+          "the contract marker is the first marker after the declaration line")
+    check(backend.hypotheses_for(loop_src, unit_i, clauses) == [("A", "requires a > 0"), ("D", "decreases a")],
+          "a loop invariant takes the enclosing contract's requires and decreases as hypotheses")
+    check(backend.hypotheses_for(loop_src, unit("A", "requires"), clauses) == [],
+          "a precondition is still verified alone, even with a loop in the body")
+    unit_d = {"obligation_id": "D", "clause": {"keyword": "decreases", "expression": "a"}}
+    check(backend.hypotheses_for(loop_src, unit_d, clauses) == [("A", "requires a > 0")],
+          "a contract-marker clause keeps only the requires clauses of its own marker")
+    inst = backend.instantiate(loop_src, "I", "invariant b <= a", ["requires a > 0", "decreases a"])
+    lines = inst.split("\n")
+    check(lines[1] == "  requires a > 0 decreases a" and lines[5] == "    invariant b <= a"
+          and inst.count("\n") == loop_src.count("\n") and not any(backend.MARKER.match(l) for l in lines),
+          "the hypotheses go to the contract marker, the loop clause to the loop marker, line numbers kept")
+    loop_no_contract = ("method N(a: nat)\n{\n  var b := a;\n  while b != 0\n"
+                        "    // selyth:obligation J\n  {\n    b := b - 1;\n  }\n}")
+    check(backend.contract_marker_line(loop_no_contract, "J") is None
+          and backend.hypotheses_for(loop_no_contract, {"obligation_id": "J",
+                                                       "clause": {"keyword": "invariant", "expression": "b <= a"}},
+                                      clauses) == [],
+          "a loop in a declaration with no contract marker gets no hypotheses (fail-closed)")
 
     heading("Call sites of a precondition")
     for text, want in (

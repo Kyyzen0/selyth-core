@@ -4,7 +4,7 @@
 // method here, edit the TypeScript (make gcd-workspace regenerates this file). The caller
 // below is scaffolding written in the specification: it is what proves the precondition.
 
-// ---- Gcd: GCD-01 .. GCD-03
+// ---- Gcd: GCD-01 .. GCD-04
 method Gcd(a: nat, b: nat) returns (result: nat)
   // selyth:obligation GCD-01 GCD-02 GCD-03
 {
@@ -12,6 +12,7 @@ method Gcd(a: nat, b: nat) returns (result: nat)
   var b := b;
   while b != 0
     invariant a >= 1 || b >= 1
+    // selyth:obligation GCD-04
   {
     var t := b;
     b := a % b;

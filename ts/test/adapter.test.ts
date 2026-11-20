@@ -48,7 +48,7 @@ function richSet(): ObligationSet {
   const extra = (id: string, kind: string, statement: string): void => {
     d.obligations.push({ ...structuredClone(base), obligation_id: id, kind, statement });
   };
-  extra("U-1", "permission", "ensures true");
+  extra("U-1", "permission", "ensures result > 0");
   extra("U-2", "postcondition", "requires x > 0");
   extra("U-3", "postcondition", "ensures f(x) > 0");
   extra("U-4", "postcondition", "ensures");
@@ -166,6 +166,25 @@ test("malformed UTF-8 is refused by both adapters, not repaired to U+FFFD", () =
 test("the CLI exits 2 without --backend-version and 1 on an invalid set", () => {
   assert.equal(spawnSync(process.execPath, [join(root, "ts/src/cli.ts"), "lower", demoPath], { encoding: "utf8" }).status, 2);
   assert.equal(tsCli(join(root, "docs/specifications/report-schema.json")).status, 1);
+});
+
+test("vacuous statements are refused by both ports, with the same rule (R10)", () => {
+  for (const statement of ["ensures true", "invariant (true)", "ensures result == result", "invariant size <= size"]) {
+    const vacuous = demo();
+    (vacuous.obligations[0] as Obligation).statement = statement;
+    assert.throws(() => parseObligationSet(JSON.stringify(vacuous)), /vacuous statement/);
+    withFile(vacuous, (path) => {
+      assert.equal(tsCli(path).status, 1);
+      assert.equal(pythonLower(path).status, 1);
+      assert.match(tsCli(path).stderr, /vacuous/);
+      assert.match(pythonLower(path).stderr, /vacuous/);
+    });
+  }
+  for (const statement of ["ensures result.length >= 0", "ensures (size == size) && result > 0"]) {
+    const ok = demo();
+    (ok.obligations[0] as Obligation).statement = statement;
+    parseObligationSet(JSON.stringify(ok)); // must not throw: the lint never refuses a meaningful statement
+  }
 });
 
 test("whitespace is exactly Python's str.isspace() set, over every code point", () => {

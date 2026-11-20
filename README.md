@@ -76,10 +76,11 @@ docs/
     report-schema.json                Verification report schema
     policy-schema.json                Acceptance policy schema
     examples/ledger/                  A 20-obligation money module: TypeScript, Dafny model, obligations, policy, lock
-    examples/gcd/                     Third-party code (pallosp/congruence_solver, MIT) through the whole gate: 4 obligations
+    examples/gcd/                     Third-party code (pallosp/congruence_solver, MIT) through the whole gate: 4 proven obligations + 2 property-tested criteria
     negative-scenarios.md             The M5 scenarios: incorrect code, weakened obligations and policy, and the lock
     lock-schema.json                  The lock: human-approved digests of the policy and the Obligation Set
     dafny-backend.md                  Dafny backend: workspace markers, outcomes, trust escapes, the report
+    property-backend.md               Property-test backend (the second backend): acceptance criteria on a seeded sample
     verification-ir.md                Verification IR (L2), reproducibility key, lowering rules
     verification-ir-schema.json       Verification IR schema
     policy-engine.md                  Normative semantics of (policy, report, obligation set) -> decision
@@ -108,6 +109,7 @@ requirements.in / requirements.txt    Direct dependencies / hash-locked environm
 tools/
   validate.py                         Independent Draft 2020-12 validator (jsonschema)
   bench.py                            Benchmark: full pipeline run on an example, per-obligation cost report (make bench)
+  check_example.py                    Whole gate on one example in one command (make check)
   test-bench.py                       Bench schema + summarise() tests (no Dafny needed)
 ts/                                   TypeScript port of the adapter (src/), tests against the Python adapter (test/)
   test-ledger.py                      The ledger: 20 obligations proven, one bug per obligation, vacuity
@@ -115,6 +117,8 @@ ts/                                   TypeScript port of the adapter (src/), tes
   test-scenarios.py                   M5 negative scenarios, end to end with Dafny
   dafny_backend.py                    Dafny backend: IR + proof workspace -> report (decided by the engine)
   test-dafny-backend.py               Backend tests against a real Dafny
+  property_backend.py                 Property-test backend: acceptance criteria -> report (second backend, needs Node)
+  test-properties.py                  Property backend tests against a real Node (make test-properties)
   ts_to_dafny.py                      TypeScript subset -> Dafny methods (proof model generated from the code)
   test-ts-to-dafny.py                 Translator tests: regeneration, refusals, differential, mutants
   evaluate.py                         M6 harness: three gates, one prover, scored against an independent oracle
@@ -136,7 +140,7 @@ ts/                                   TypeScript port of the adapter (src/), tes
 make test
 ```
 
-This builds a virtualenv (`.venv`, Python 3.9 or newer) from the hash-locked `requirements.txt`, runs the Python suites below, the Dafny backend's tests, then the TypeScript port's tests. `make test-python` needs neither Node nor Dafny; `make test-dafny` needs Dafny 4.11.0 (`SELYTH_DAFNY=/path/to/dafny`, default `~/.local/opt/dafny/dafny`); `make test-ts` needs Node 24 or newer (`make test NODE_BIN=/path/to/node/bin` if it is not on `PATH`). `make bench` also needs Dafny: it runs the full pipeline on an example (`EXAMPLE=ledger` by default, `EXAMPLE=gcd` for the third-party one) once and prints the per-obligation cost (resource units, wall-clock, memory) as a table plus a bench report valid for [`docs/specifications/bench-schema.json`](docs/specifications/bench-schema.json); the measurements are published in [`docs/research/performance.md`](docs/research/performance.md). The suites:
+This builds a virtualenv (`.venv`, Python 3.9 or newer) from the hash-locked `requirements.txt`, runs the Python suites below, the Dafny backend's tests, then the TypeScript port's tests. `make test-python` needs neither Node nor Dafny; `make test-dafny` needs Dafny 4.11.0 (`SELYTH_DAFNY=/path/to/dafny`, default `~/.local/opt/dafny/dafny`); `make test-ts` needs Node 24 or newer (`make test NODE_BIN=/path/to/node/bin` if it is not on `PATH`). `make bench` also needs Dafny: it runs the full pipeline on an example (`EXAMPLE=ledger` by default, `EXAMPLE=gcd` for the third-party one) once and prints the per-obligation cost (resource units, wall-clock, memory) as a table plus a bench report valid for [`docs/specifications/bench-schema.json`](docs/specifications/bench-schema.json); the measurements are published in [`docs/research/performance.md`](docs/research/performance.md). `make check [EXAMPLE=...]` runs the whole gate on an example in one command — validate the set and its components, regenerate and byte-compare the workspace, lower, verify with Dafny, accept under the lock, replay the decision, and run the property backend when the example has one (`EXAMPLE=gcd`). The suites:
 
 1. **`tools/test-validation.py`, the primary suite**, under the independent [`jsonschema`](https://python-jsonschema.readthedocs.io/) library, pinned, in its Draft 2020-12 mode. It replays the 23 fixtures of `tools/test-schemas.py` unchanged: two valid documents that must pass and twenty-one that must fail. For every rejection it also requires that the *intended* rule is among the reported errors, because a fixture that fails for an unrelated reason proves nothing. It further checks that each schema is a valid Draft 2020-12 schema with no duplicate key, no unknown keyword and no dangling `$ref`, so a schema cannot quietly rely on a rule that is never checked.
 2. **`tools/test-schemas.py`, the original suite**, under `tools/minischema.py`, kept as a secondary check.

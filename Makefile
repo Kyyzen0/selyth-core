@@ -6,8 +6,14 @@
 #   make test-dafny               Dafny backend against a real Dafny 4.11.0 (SELYTH_DAFNY=<path> if not at ~/.local/opt/dafny/dafny)
 #   make test-eval                evaluation harness (M6) on its scripted corpus: needs Dafny and Node, about five minutes
 #   make test-ts                  TypeScript port only (needs Node >= 24; NODE_BIN=<dir> if not on PATH)
+#   make test-properties          property-test backend, the second backend (needs Node >= 22.6
+#                                 for type stripping; SELYTH_NODE=<path> if not on PATH)
 #   make bench [EXAMPLE=gcd]      measure the gate's cost on an example (default ledger): per-obligation
 #                                 table + bench report (needs Dafny)
+#   make check [EXAMPLE=gcd]      the whole gate on an example in one command: validate + components,
+#                                 workspace regeneration check, lower, Dafny verify, accept under the
+#                                 lock, replay, property backend when the example has one (needs Dafny;
+#                                 Node too for EXAMPLE=gcd)
 #   make gcd-workspace            regenerate the gcd example's Dafny model from gcd.ts
 #   make test PYTHON=python3.12   use another interpreter (>= 3.9) for the venv
 #   make clean                    delete the venv
@@ -18,7 +24,7 @@ VPY    := $(VENV)/bin/python
 NODE_BIN ?=
 export PATH := $(if $(NODE_BIN),$(NODE_BIN):)$(PATH)
 
-.PHONY: test test-python test-dafny test-ts test-eval bench ledger-workspace gcd-workspace venv clean
+.PHONY: test test-python test-dafny test-ts test-properties test-eval bench check ledger-workspace gcd-workspace venv clean
 
 test: test-python test-dafny test-ts test-eval
 
@@ -79,6 +85,12 @@ test-ts: venv
 	@command -v node >/dev/null || { echo "Node >= 24 not found: install it or pass NODE_BIN=<dir with node>"; exit 1; }
 	cd ts && npm ci --ignore-scripts --no-audit --no-fund && npm test
 
+# The property-test backend (second backend; docs/specifications/property-backend.md): runs the
+# acceptance criteria of an example on a seeded sample with Node's type stripping.
+test-properties: venv
+	@command -v node >/dev/null || { echo "Node >= 22.6 not found: install it or pass NODE_BIN=<dir with node>"; exit 1; }
+	$(VPY) tools/test-properties.py
+
 # The evaluation harness runs the corpus through Dafny and the Node oracle.
 test-eval: venv
 	@command -v node >/dev/null || { echo "Node >= 24 not found: install it or pass NODE_BIN=<dir with node>"; exit 1; }
@@ -93,6 +105,12 @@ bench: venv
 	    --policy $(EXDIR)/$(EXAMPLE).policy.json \
 	    --lock $(EXDIR)/$(EXAMPLE).lock.json \
 	    --workspace $(EXDIR)/$(EXAMPLE).workspace.dfy
+
+# The whole gate on one example, in one command (validate, regenerate + compare the workspace,
+# lower, verify with Dafny, accept under the lock, replay; property backend too when the example
+# has one). Needs Dafny, and Node for EXAMPLE=gcd.
+check: venv
+	$(VPY) tools/check_example.py --example $(EXAMPLE)
 
 clean:
 	rm -rf $(VENV) ts/node_modules

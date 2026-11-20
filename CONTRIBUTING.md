@@ -22,7 +22,11 @@ reason in the decision register, not just a rule.
 ```
 make test-python     # all Python suites; needs only Python >= 3.9 (builds .venv from the hash-locked requirements.txt)
 make test-ts         # the TypeScript port, byte-compared with the Python adapter; needs Node >= 24
+make test-properties # the property-test backend against a real Node (>= 22.6); needs Node
 make test-dafny      # the Dafny backend against a real Dafny 4.11.0 (SELYTH_DAFNY=<path> if not at ~/.local/opt/dafny/dafny)
+make check           # the whole gate on one example in one command (EXAMPLE=ledger|gcd|queue): validate,
+                     # workspace regeneration check, lower, Dafny verify, accept under the lock, replay,
+                     # property backend when the example has one; needs Dafny (Node too for EXAMPLE=gcd)
 make test            # everything
 ```
 

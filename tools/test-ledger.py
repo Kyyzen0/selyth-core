@@ -140,7 +140,7 @@ def check_project(dafny, solver, version):
           "obligations x file size")
     by_id = {o["obligation_id"]: o for o in report["obligations"]}
     check("LED-01 holds at every call site" in " ".join(by_id["LED-03"]["evidence"]["assumptions"])
-          and "under the preconditions LED-01" in by_id["LED-03"]["evidence"]["scope"]
+          and "under the clauses LED-01 of its contract" in by_id["LED-03"]["evidence"]["scope"]
           and not any("holds at every call site" in a for a in by_id["LED-01"]["evidence"]["assumptions"]),
           "a postcondition's evidence lists the preconditions it was verified under; a precondition has none")
     return report

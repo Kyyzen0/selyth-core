@@ -29,6 +29,10 @@ Input is UTF-8 text, without byte-order mark.
 
 The result is the **canonical form**.
 
+## Semantic checks at load
+
+`parse_obligation_set` refuses, after schema validation and canonicalisation, what the format rules above cannot express: duplicate `obligation_id`s after NFC, duplicate assumptions or components after NFC, lone surrogates, and **vacuous statements** — an expression that is the literal `true` or compares a name with itself (`x == x`, `x <= x`, `x >= x`, optionally parenthesised) proves nothing and is rejected with the obligation id (risk R10). The lint is deliberately syntactic and conservative: anything else is left to the verifier, and it must never refuse a meaningful statement. In-memory documents that skip `parse_obligation_set` (the tests that weaken an obligation on purpose) are still caught by the lock at decision time.
+
 ## Digests
 
 - **Set digest** = `sha256:` + lowercase hex SHA-256 of the canonical form of the whole document. This is the digest a report lists under `subject` with role `obligation-set`.
@@ -74,6 +78,10 @@ Coverage compares two documents, so it is semantic validation (see [`validation-
 5. For each matched obligation, every field the report echoes from the set — `kind`, `statement`, `intent_statement`, `required_evidence_kind`, `affected_components` — equals the set's (strings compared after NFC; `affected_components` compared as a set, order-free). The obligation digest already binds these fields, so this rule cannot catch anything the digest misses; it exists so that a forged echo is named field by field instead of only as a digest mismatch.
 
 An obligation that was not run still appears in the report, with outcome `not-run`: omission is never a way to skip.
+
+## Binding to code: components and markers
+
+`affected_components` are paths **relative to the Obligation Set file's directory**. `obligation_set.py check-components <set.json> [base-dir]` fails (exit 1) naming every component that does not exist under the base directory (default: the set file's own): a component that is gone means the obligation is detached from the code it claims to govern (failure mode F2), and that must be visible, not silent. The Dafny backend enforces the other direction: it refuses (exit 2, no report) a proof workspace that carries a marker for an obligation id the set does not declare, and reports an obligation with no marker (or several) as `not-run` ([`dafny-backend.md`](dafny-backend.md)). Together: every obligation is bound to exactly one place in the code, and every marked place in the code belongs to a declared obligation.
 
 ## Not covered here
 

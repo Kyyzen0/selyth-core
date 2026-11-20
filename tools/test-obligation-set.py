@@ -286,12 +286,12 @@ def check_refusals():
     heading("Semantic refusals while canonicalising")
     base = demo()
 
-    def refused(label, text):
+    def refused(label, text, want=None):
         try:
             oset.parse_obligation_set(text)
             check(False, f"refused: {label}", "    accepted")
-        except oset.ObligationSetError:
-            check(True, f"refused: {label}")
+        except oset.ObligationSetError as exc:
+            check(want is None or want in str(exc), f"refused: {label}", f"    {exc}")
 
     dup_id = copy.deepcopy(base)
     dup_id["obligations"][1]["obligation_id"] = "OBL-0007"
@@ -308,6 +308,26 @@ def check_refusals():
     refused("lone surrogate", text.replace("Bounded queue", "Bounded \\ud800 queue"))
     refused("byte-order mark", "﻿" + text)
     refused("not JSON", "{not json")
+    heading("Vacuous statements are refused (R10)")
+    for label, statement in (
+            ("the literal true", "ensures true"),
+            ("a parenthesised true", "invariant (true)"),
+            ("a name compared with itself", "ensures result == result"),
+            ("a name with <= itself", "invariant size <= size"),
+            ("a double-parenthesised self-comparison", "ensures ((size >= size))"),
+    ):
+        vacuous = copy.deepcopy(base)
+        vacuous["obligations"][0]["statement"] = statement
+        refused(f"vacuous statement: {label} ({statement!r})", json.dumps(vacuous), "vacuous")
+    for statement in ("ensures result.length >= 0", "ensures x != x || result > 0",
+                      "invariant 0 <= size", "ensures (size == size) && result > 0"):
+        meaningful = copy.deepcopy(base)
+        meaningful["obligations"][0]["statement"] = statement
+        try:
+            oset.parse_obligation_set(json.dumps(meaningful))
+            check(True, f"accepted: non-vacuous {statement!r}")
+        except oset.ObligationSetError as exc:
+            check(False, f"accepted: non-vacuous {statement!r}", f"    {exc}")
     with tempfile.TemporaryDirectory(prefix="selyth-oset-") as tmp:
         path = Path(tmp) / "bad.json"
         original = DEMO.read_bytes()
@@ -469,6 +489,18 @@ def check_cli():
         r = run("cover", str(DEMO), str(Path(tmp) / "bad.json"))
         check(r.returncode == 1 and "OBL-0009 is in the set but omitted" in r.stdout,
               "cover exits 1 and names the omitted obligation", r.stdout)
+    gcd_set = ROOT / "docs" / "specifications" / "examples" / "gcd" / "gcd.obligations.json"
+    r = run("check-components", str(gcd_set))
+    check(r.returncode == 0 and "[PASS]" in r.stdout,
+          "check-components exits 0 when every affected_components exists next to the set", r.stdout)
+    r = run("check-components", str(DEMO))
+    check(r.returncode == 1 and "queue.ts" in r.stdout and "drain.ts" in r.stdout,
+          "check-components exits 1 and names the missing components (the queue fixture has no .ts sources)",
+          r.stdout)
+    r = run("check-components", str(gcd_set), str(DEMO.parent))
+    check(r.returncode == 1 and "gcd.ts" in r.stdout, "check-components honours an explicit base dir", r.stdout)
+    r = run("check-components")
+    check(r.returncode == 2, "check-components without arguments is a usage error (exit 2)")
 
 
 def main():

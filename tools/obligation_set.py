@@ -13,10 +13,15 @@ Usage:
   obligation_set.py digest    <obligation-set.json>   print the set digest
   obligation_set.py digests   <obligation-set.json>   print each obligation digest
   obligation_set.py cover     <obligation-set.json> <report.json>
+  obligation_set.py check-components <obligation-set.json> [base-dir]
+              every affected_components must exist under base-dir (default: the set file's
+              directory); a missing component means the obligation is detached from the
+              code it claims to govern
 Exit status: 0 ok, 1 invalid or not covered, 2 usage error or unreadable input.
 """
 import hashlib
 import json
+import re
 import sys
 import unicodedata
 from collections import Counter
@@ -98,6 +103,46 @@ def obligation_digests(document):
             for o in canonical_form(document)["obligations"]}
 
 
+_SELF_COMPARISON = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*(==|<=|>=)\s*\1$")
+
+
+def _vacuous_reason(expression):
+    """Why an obligation expression would prove nothing, or None.
+
+    Only syntactic vacuity is refused: the literal `true`, and a comparison of a name
+    with itself (`x == x`, `x <= x`, `x >= x`), optionally wrapped in parentheses.
+    Everything else is left to the verifier — this lint must never refuse a meaningful
+    statement (RIINA's vacuity finding, risk R10 in docs/research/technical-risks.md).
+    """
+    text = expression.strip()
+    while text.startswith("(") and text.endswith(")"):
+        depth, wraps = 0, True
+        for i, ch in enumerate(text):
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0 and i < len(text) - 1:
+                    wraps = False
+                    break
+        if not wraps:
+            break
+        text = text[1:-1].strip()
+    if text == "true":
+        return "the expression is the literal `true`"
+    match = _SELF_COMPARISON.match(text)
+    if match:
+        return f"a comparison of {match.group(1)!r} with itself is always true"
+    return None
+
+
+def _vacuity_problem(obligation):
+    parts = obligation["statement"].split(None, 1)
+    if len(parts) < 2:
+        return None  # no expression after the keyword: the adapter reports it as unsupported
+    return _vacuous_reason(parts[1])
+
+
 def parse_obligation_set(text):
     """Parse and validate an Obligation Set from JSON text; return the parsed document."""
     try:
@@ -109,6 +154,11 @@ def parse_obligation_set(text):
         raise ObligationSetError("schema violation: " + "; ".join(
             f"{p.path}: {p.message}" for p in problems))
     canonical_bytes(document)  # semantic checks: duplicates, lone surrogates
+    for obligation in canonical_form(document)["obligations"]:
+        reason = _vacuity_problem(obligation)
+        if reason is not None:
+            raise ObligationSetError(f"obligation {obligation['obligation_id']}: vacuous statement "
+                                     f"{obligation['statement']!r}: {reason}")
     return document
 
 
@@ -176,13 +226,50 @@ def check_coverage(obligation_set, report):
     return problems
 
 
+def missing_components(document, base_dir):
+    """The affected_components paths that do not exist under base_dir, sorted.
+
+    Components are relative to the Obligation Set file's directory
+    (docs/specifications/obligation-set-canonicalization.md): a component that is gone
+    means the obligation is detached from the code it claims to govern, which the
+    additions-only philosophy wants visible, not silent (failure mode F2).
+    """
+    base = Path(base_dir)
+    missing = set()
+    for obligation in canonical_form(document)["obligations"]:
+        for component in obligation["affected_components"]:
+            if not (base / component).is_file():
+                missing.add(component)
+    return sorted(missing)
+
+
 def _usage():
     print(__doc__.strip().split("Usage:")[1].split("Exit status")[0].rstrip())
     return 2
 
 
+def _main_check_components(args):
+    try:
+        document = load_obligation_set(args[0])
+    except ObligationSetError as exc:
+        print(f"[FAIL] {args[0]}: {exc}")
+        return 1
+    except (OSError, validate.SchemaError) as exc:
+        print(f"[ERROR] {exc}")
+        return 2
+    base = Path(args[1]) if len(args) > 1 else Path(args[0]).resolve().parent
+    missing = missing_components(document, base)
+    if missing:
+        print(f"[FAIL] {args[0]}: affected_components missing under {base}: " + ", ".join(missing))
+        return 1
+    print(f"[PASS] {args[0]}: every affected_components exists under {base}")
+    return 0
+
+
 def main(argv):
     commands = {"check": 1, "canonical": 1, "digest": 1, "digests": 1, "cover": 2}
+    if len(argv) >= 2 and argv[1] == "check-components" and len(argv) - 2 in (1, 2):
+        return _main_check_components(argv[2:])
     if len(argv) < 2 or commands.get(argv[1]) != len(argv) - 2:
         return _usage()
     command = argv[1]

@@ -39,6 +39,8 @@ jobs:
           node-version: 24
       - name: make test-ts
         run: make test-ts
+      - name: make test-properties
+        run: make test-properties
 
   test-dafny:
     runs-on: ubuntu-24.04
@@ -79,3 +81,5 @@ jobs:
           make test-dafny test-eval
           make bench
           make bench EXAMPLE=gcd
+          make check
+          make check EXAMPLE=gcd
