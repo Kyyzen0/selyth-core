@@ -82,6 +82,7 @@ docs/
     verification-ir.md                Verification IR (L2), reproducibility key, lowering rules
     verification-ir-schema.json       Verification IR schema
     policy-engine.md                  Normative semantics of (policy, report, obligation set) -> decision
+    bench-schema.json                 Bench report schema (what `make bench` emits)
     obligation-set-schema.json        Obligation Set schema (the frozen verification input)
     obligation-set-canonicalization.md  Canonical form, digest, and report coverage rules
     examples/queue.obligations.json   Demonstration Obligation Set
@@ -93,6 +94,7 @@ docs/
   research/
     prior-art.md                      Comparative analysis of prior art
     technical-risks.md                Prioritised risk register
+    performance.md                    First measurements of the gate's cost (make bench), E-05/P-01/F1
   evaluation/
     protocol.md                       M6 evaluation protocol (harness reference)
     tasks.json                        scripted corpus (23 submissions) for harness self-tests
@@ -104,6 +106,8 @@ Makefile                              `make test`: builds the pinned venv, runs 
 requirements.in / requirements.txt    Direct dependencies / hash-locked environment
 tools/
   validate.py                         Independent Draft 2020-12 validator (jsonschema)
+  bench.py                            Benchmark: full pipeline run on an example, per-obligation cost report (make bench)
+  test-bench.py                       Bench schema + summarise() tests (no Dafny needed)
 ts/                                   TypeScript port of the adapter (src/), tests against the Python adapter (test/)
   test-ledger.py                      The ledger: 20 obligations proven, one bug per obligation, vacuity
   test-scenarios.py                   M5 negative scenarios, end to end with Dafny
@@ -130,7 +134,7 @@ ts/                                   TypeScript port of the adapter (src/), tes
 make test
 ```
 
-This builds a virtualenv (`.venv`, Python 3.9 or newer) from the hash-locked `requirements.txt`, runs the Python suites below, the Dafny backend's tests, then the TypeScript port's tests. `make test-python` needs neither Node nor Dafny; `make test-dafny` needs Dafny 4.11.0 (`SELYTH_DAFNY=/path/to/dafny`, default `~/.local/opt/dafny/dafny`); `make test-ts` needs Node 24 or newer (`make test NODE_BIN=/path/to/node/bin` if it is not on `PATH`). The suites:
+This builds a virtualenv (`.venv`, Python 3.9 or newer) from the hash-locked `requirements.txt`, runs the Python suites below, the Dafny backend's tests, then the TypeScript port's tests. `make test-python` needs neither Node nor Dafny; `make test-dafny` needs Dafny 4.11.0 (`SELYTH_DAFNY=/path/to/dafny`, default `~/.local/opt/dafny/dafny`); `make test-ts` needs Node 24 or newer (`make test NODE_BIN=/path/to/node/bin` if it is not on `PATH`). `make bench` also needs Dafny: it runs the full pipeline on the ledger example once and prints the per-obligation cost (resource units, wall-clock, memory) as a table plus a bench report valid for [`docs/specifications/bench-schema.json`](docs/specifications/bench-schema.json); the measurements are published in [`docs/research/performance.md`](docs/research/performance.md). The suites:
 
 1. **`tools/test-validation.py`, the primary suite**, under the independent [`jsonschema`](https://python-jsonschema.readthedocs.io/) library, pinned, in its Draft 2020-12 mode. It replays the 23 fixtures of `tools/test-schemas.py` unchanged: two valid documents that must pass and twenty-one that must fail. For every rejection it also requires that the *intended* rule is among the reported errors, because a fixture that fails for an unrelated reason proves nothing. It further checks that each schema is a valid Draft 2020-12 schema with no duplicate key, no unknown keyword and no dangling `$ref`, so a schema cannot quietly rely on a rule that is never checked.
 2. **`tools/test-schemas.py`, the original suite**, under `tools/minischema.py`, kept as a secondary check.

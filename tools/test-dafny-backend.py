@@ -386,6 +386,41 @@ def check_cli_usage():
     check(run(*base, "--time-limit=-5") == 2, "a negative --time-limit in equals form exits 2")
 
 
+def check_bench(dafny):
+    """The benchmark target, end to end with a real Dafny: table + valid bench report."""
+    heading("Bench: the gate's cost on the ledger (E-05 / P-01 / F1)")
+    project = ROOT / "docs" / "specifications" / "examples" / "ledger"
+    with tempfile.TemporaryDirectory(prefix="selyth-bench-") as tmp:
+        out = Path(tmp) / "bench.json"
+        run = subprocess.run([sys.executable, str(TOOLS / "bench.py"),
+                              "--obligation-set", str(project / "ledger.obligations.json"),
+                              "--policy", str(project / "ledger.policy.json"),
+                              "--lock", str(project / "ledger.lock.json"),
+                              "--workspace", str(project / "ledger.workspace.dfy"),
+                              "--dafny", str(dafny), "--produced-at", PRODUCED_AT,
+                              "-o", str(out)], capture_output=True, text=True)
+        check(run.returncode == 0, "bench.py exits 0 on the ledger",
+              f"    exit {run.returncode}: {run.stderr[-300:]}")
+        if run.returncode != 0:
+            return
+        bench_doc = json.loads(out.read_text(encoding="utf-8"))
+        schema = validate.load_schema(ROOT / "docs" / "specifications" / "bench-schema.json")
+        problems = validate.validate(bench_doc, schema)
+        check(not problems, "the bench report is valid for bench-schema.json",
+              "    " + "; ".join(f"{p.path} {p.message}" for p in problems))
+        check(len(bench_doc["obligations"]) == 20 and bench_doc["decision"] == "accepted",
+              "twenty obligations benched, decision accepted", f"    decision {bench_doc['decision']}")
+        check(all(e["outcome"] == "proven" and e.get("resource_units", 0) > 0 and e.get("wall_ms", 0) >= 0
+                  for e in bench_doc["obligations"]),
+              "every obligation records a positive resource_units and a wall_ms")
+        t = bench_doc["totals"]
+        check(t["obligations"] == 20
+              and t["resource_units"] == sum(e["resource_units"] for e in bench_doc["obligations"]),
+              "totals equal the per-obligation sums", f"    {t}")
+        check("resource_units" in run.stdout and "wall_ms" in run.stdout,
+              "the per-obligation table is printed to stdout", run.stdout[:200])
+
+
 def main():
     check_units()
     check_cli_usage()
@@ -399,6 +434,7 @@ def main():
         check(version == "4.11.0", f"Dafny {version} is the version the fixtures and docs name (4.11.0)",
               "    other versions may change diagnostics or resource counts")
         check_pipeline(dafny, solver, version)
+        check_bench(dafny)
     print(f"\n{'FAILED' if FAILURES else 'all checks passed'}: {len(FAILURES)} failure(s)")
     for label, detail in FAILURES:
         print(f"\n--- {label}\n{detail}")
