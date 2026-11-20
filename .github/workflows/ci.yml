@@ -17,27 +17,21 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Guard: this repo is private and the self-hosted runner (infra/ci-runner/) must never
+# execute fork PRs. Private repo AND (push/dispatch OR PR whose head is not a fork).
 jobs:
   test-python:
-    # Any self-hosted runner (Docker container on Linux, or native macOS): GitHub-hosted
-    # runners are refused while the private-repo Actions quota is exhausted, and a
-    # self-hosted runner consumes no GitHub-hosted minutes. Switch back to `ubuntu-24.04`
-    # (not `latest`: 26.04 no longer ships Python 3.9, the oldest interpreter the project
-    # supports) when hosted minutes are available again.
-    # Setup: docs/operations/self-hosted-runner.md
-    runs-on: [self-hosted]
+    # The kut-ci self-hosted runner (infra/ci-runner/): consumes no GitHub-hosted minutes,
+    # which are exhausted for this private repo. Switch back to `ubuntu-24.04` (not
+    # `latest`: 26.04 no longer ships Python 3.9) when hosted minutes are available again.
+    if: github.event.repository.private && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork)
+    runs-on: [self-hosted, linux, kut-ci]
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
-      # The official self-hosted runner image ships no make; hosted ubuntu-24.04 has it.
-      - name: Ensure make is available
-        run: |
-          if ! command -v make >/dev/null 2>&1; then
-            sudo apt-get update -y && sudo apt-get install -y --no-install-recommends make
-          fi
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
@@ -45,14 +39,10 @@ jobs:
         run: make test-python
 
   test-ts:
-    runs-on: [self-hosted]
+    if: github.event.repository.private && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork)
+    runs-on: [self-hosted, linux, kut-ci]
     steps:
       - uses: actions/checkout@v4
-      - name: Ensure make is available
-        run: |
-          if ! command -v make >/dev/null 2>&1; then
-            sudo apt-get update -y && sudo apt-get install -y --no-install-recommends make
-          fi
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -65,15 +55,11 @@ jobs:
         run: make test-properties
 
   test-dafny:
-    runs-on: [self-hosted]
+    if: github.event.repository.private && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork)
+    runs-on: [self-hosted, linux, kut-ci]
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - name: Ensure make is available
-        run: |
-          if ! command -v make >/dev/null 2>&1; then
-            sudo apt-get update -y && sudo apt-get install -y --no-install-recommends make
-          fi
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

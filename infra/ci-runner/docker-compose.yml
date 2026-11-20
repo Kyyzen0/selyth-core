@@ -1,0 +1,44 @@
+# One persistent self-hosted runner for Kyyzen0/selyth-core (private repo),
+# in a single always-on container. Reference: infra/ci-runner/ in Kyyzen0/Kut-Studio.
+#
+# First start (the registration token never lands in a file or in chat — it lives
+# only in this shell for the duration of the command; it is valid 1 h and used once):
+#
+#   cd infra/ci-runner
+#   RUNNER_TOKEN=$(gh api -X POST repos/Kyyzen0/selyth-core/actions/runners/register-token --jq .token) \
+#     docker compose up -d --build
+#   docker compose logs -f runner     # wait for "Listening for Jobs"
+#
+# Later starts/restarts need no token: the registration (.runner/.credentials)
+# lives in the named volume runner-home.
+services:
+  runner:
+    build: .
+    image: selyth-ci-runner:local
+    container_name: kut-ci-runner
+    restart: unless-stopped
+    # linux/amd64 pinned on purpose: Dafny 4.11.0 has no linux-arm64 build.
+    # On an Apple Silicon Mac this runs through Docker Desktop's qemu emulation
+    # (slower, but the x64 Dafny binary works). Labels become self-hosted, Linux,
+    # X64 + kut-ci; the workflow targets [self-hosted, linux, kut-ci].
+    platform: linux/amd64
+    environment:
+      REPO_URL: https://github.com/Kyyzen0/selyth-core
+      RUNNER_NAME: ${RUNNER_NAME:-kut-ci}
+      # Empty on restarts: entrypoint.sh only requires it when .runner is absent.
+      RUNNER_TOKEN: ${RUNNER_TOKEN:-}
+    # Security (private repo only, never for fork PRs — the workflow guards that too):
+    # unprivileged user, all capabilities dropped, no-new-privileges, no host
+    # directory mounts, no keychain, no docker.sock, no published ports.
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      # runner configuration + registration + job workspace (never a host dir)
+      - runner-home:/home/runner
+      # pip dependency cache (named volume, not a host mount)
+      - pip-cache:/home/runner/.cache/pip
+    # NOTE: deliberately NO tmpfs on /tmp. A noexec /tmp makes tests that execute
+    # temporary scripts fail with "Permission denied".
+volumes:
+  runner-home:
+  pip-cache:
