@@ -81,3 +81,5 @@ jobs:
           make test-dafny test-eval
           make bench
           make bench EXAMPLE=gcd
+          make check
+          make check EXAMPLE=gcd
