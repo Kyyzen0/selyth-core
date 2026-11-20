@@ -1,0 +1,9 @@
+{
+  "function": "gcd",
+  "params": {
+    "a": { "domain": "nat", "min": 1, "max": 40 },
+    "b": { "domain": "nat", "min": 1, "max": 40 }
+  },
+  "samples": 200,
+  "seed": 20261120
+}

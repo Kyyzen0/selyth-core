@@ -39,6 +39,8 @@ jobs:
           node-version: 24
       - name: make test-ts
         run: make test-ts
+      - name: make test-properties
+        run: make test-properties
 
   test-dafny:
     runs-on: ubuntu-24.04
