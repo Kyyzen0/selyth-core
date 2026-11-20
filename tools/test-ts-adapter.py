@@ -115,7 +115,7 @@ def check_determinism():
         o["assumptions"] = [f"assumption {c} of {i}" for c in "fbdaec"]
         o["affected_components"] = [f"{c}/mod{i}.ts" for c in "zyxwvu"]
     rich["obligations"].append({**copy.deepcopy(rich["obligations"][0]), "obligation_id": "U-1",
-                                "kind": "permission", "statement": "ensures true"})
+                                "kind": "permission", "statement": "ensures result > 0"})
     with tempfile.TemporaryDirectory(prefix="selyth-ir-") as tmp:
         path = Path(tmp) / "rich.json"
         path.write_text(json.dumps(rich), encoding="utf-8")

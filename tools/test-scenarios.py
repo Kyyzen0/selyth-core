@@ -127,9 +127,19 @@ def scenarios(dafny, solver, version):
     heading("Scenario 8b — the agent deletes the obligation it violates")
     narrowed = copy.deepcopy(document)
     narrowed["obligations"] = [o for o in narrowed["obligations"] if o["obligation_id"] != "OBL-0008"]
-    report = tdb.pipeline(dafny, solver, version, document=narrowed, workspace=BUGGY_WORKSPACE)
+    try:
+        tdb.pipeline(dafny, solver, version, document=narrowed, workspace=BUGGY_WORKSPACE)
+        check(False, "a workspace still marking the deleted obligation is refused (exit 2, no report)",
+              "    a report was produced")
+    except backend.BackendError as exc:
+        check("OBL-0008" in str(exc),
+              "a workspace still marking the deleted obligation is refused (exit 2, no report), naming it: "
+              "set and workspace must be regenerated together", f"    {exc}")
+    consistent = BUGGY_WORKSPACE.replace("    // selyth:obligation OBL-0008\n", "")
+    report = tdb.pipeline(dafny, solver, version, document=narrowed, workspace=consistent)
     check(report["decision"]["result"] == "accepted" and "OBL-0008" not in tdb.outcomes(report),
-          "(setup) without the lock the buggy implementation is accepted once its obligation is gone")
+          "(setup) without the lock, once set and workspace are consistently regenerated, the buggy "
+          "implementation is accepted: its obligation is gone")
     d = gate(report, POLICY, narrowed, lock)
     check(d["result"] == "rejected" and rules(d) == [("INTEGRITY-OBLIGATION-SET-NOT-FROZEN", None)],
           "with the lock it is REJECTED by digest mismatch", f"    {d}")
@@ -215,7 +225,11 @@ def scenarios(dafny, solver, version):
             return str(path)
         lk, pol = write("lock.json", lock), write("policy.json", POLICY)
         bug = write("buggy.dfy", text=BUGGY_WORKSPACE)
-        good_set, weak_set = write("set.json", document), write("weak.json", weakened)
+        cli_weakened = copy.deepcopy(document)
+        next(o for o in cli_weakened["obligations"] if o["obligation_id"] == "OBL-0008")["statement"] = \
+            "invariant 0 <= size"  # weaker than 0 <= size <= capacity, but not vacuous
+        good_set, weak_set = write("set.json", document), write("weak.json", cli_weakened)
+        vacuous_set = write("vacuous.json", weakened)  # "invariant true"
 
         def verify(set_path, workspace):
             document_ = json.loads(Path(set_path).read_text())
@@ -232,6 +246,10 @@ def scenarios(dafny, solver, version):
         out = json.loads(run.stdout)
         check(run.returncode == 1 and rules(out["decision"]) == [("INTEGRITY-OBLIGATION-SET-NOT-FROZEN", None)],
               "the weakened obligation: exit 1, INTEGRITY-OBLIGATION-SET-NOT-FROZEN")
+        run = verify(vacuous_set, bug)
+        check(run.returncode == 2 and "vacuous" in run.stderr and not run.stdout,
+              "a vacuous statement in the set file is refused at load: exit 2, no report",
+              f"    exit {run.returncode}: {run.stderr.strip()[:140]}")
         good = verify(good_set, write("good.dfy", text=GOOD_WORKSPACE))
         check(good.returncode == 0, "and the correct implementation under the same lock: exit 0")
 

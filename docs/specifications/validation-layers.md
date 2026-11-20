@@ -41,6 +41,7 @@ JSON Schema **cannot** state:
 | `decision.result` is what the policy yields for the obligations' outcomes and evidence | **semantic** | `policy_engine.replay` | same |
 | The report lists every obligation of the Obligation Set exactly once, with the same id, digest and echoed fields (`kind`, `statement`, `intent_statement`, `required_evidence_kind`, `affected_components`), and names the set digest | **semantic** | `tools/obligation_set.py cover` (`check_coverage`) | `tools/test-obligation-set.py`, "Coverage" |
 | `obligation_id` values are unique within a report, and within an Obligation Set | **semantic** | `check_coverage` (report), `parse_obligation_set` (set) | same |
+| An Obligation Set statement that is syntactically vacuous (`true`, `x == x`, `x <= x`, `x >= x`, parenthesised) is invalid | **semantic** | `parse_obligation_set` vacuity lint (R10: RIINA counted 1 318 vacuous theorems) | `tools/test-obligation-set.py`, "Vacuous statements" |
 | `min_evidence_kind` compares positions on the evidence lattice, not on JSON enum order | **semantic** | `policy_engine.EVIDENCE_LATTICE` | `tools/test-policy-engine.py`, "Evidence lattice" |
 
 The last row matters because `enum` order carries no meaning in JSON Schema, so the "normative order" stated in a schema description is not something layer 1 can check.

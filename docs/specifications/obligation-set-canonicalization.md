@@ -29,6 +29,10 @@ Input is UTF-8 text, without byte-order mark.
 
 The result is the **canonical form**.
 
+## Semantic checks at load
+
+`parse_obligation_set` refuses, after schema validation and canonicalisation, what the format rules above cannot express: duplicate `obligation_id`s after NFC, duplicate assumptions or components after NFC, lone surrogates, and **vacuous statements** — an expression that is the literal `true` or compares a name with itself (`x == x`, `x <= x`, `x >= x`, optionally parenthesised) proves nothing and is rejected with the obligation id (risk R10). The lint is deliberately syntactic and conservative: anything else is left to the verifier, and it must never refuse a meaningful statement. In-memory documents that skip `parse_obligation_set` (the tests that weaken an obligation on purpose) are still caught by the lock at decision time.
+
 ## Digests
 
 - **Set digest** = `sha256:` + lowercase hex SHA-256 of the canonical form of the whole document. This is the digest a report lists under `subject` with role `obligation-set`.

@@ -21,6 +21,7 @@ Exit status: 0 ok, 1 invalid or not covered, 2 usage error or unreadable input.
 """
 import hashlib
 import json
+import re
 import sys
 import unicodedata
 from collections import Counter
@@ -102,6 +103,46 @@ def obligation_digests(document):
             for o in canonical_form(document)["obligations"]}
 
 
+_SELF_COMPARISON = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*(==|<=|>=)\s*\1$")
+
+
+def _vacuous_reason(expression):
+    """Why an obligation expression would prove nothing, or None.
+
+    Only syntactic vacuity is refused: the literal `true`, and a comparison of a name
+    with itself (`x == x`, `x <= x`, `x >= x`), optionally wrapped in parentheses.
+    Everything else is left to the verifier — this lint must never refuse a meaningful
+    statement (RIINA's vacuity finding, risk R10 in docs/research/technical-risks.md).
+    """
+    text = expression.strip()
+    while text.startswith("(") and text.endswith(")"):
+        depth, wraps = 0, True
+        for i, ch in enumerate(text):
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0 and i < len(text) - 1:
+                    wraps = False
+                    break
+        if not wraps:
+            break
+        text = text[1:-1].strip()
+    if text == "true":
+        return "the expression is the literal `true`"
+    match = _SELF_COMPARISON.match(text)
+    if match:
+        return f"a comparison of {match.group(1)!r} with itself is always true"
+    return None
+
+
+def _vacuity_problem(obligation):
+    parts = obligation["statement"].split(None, 1)
+    if len(parts) < 2:
+        return None  # no expression after the keyword: the adapter reports it as unsupported
+    return _vacuous_reason(parts[1])
+
+
 def parse_obligation_set(text):
     """Parse and validate an Obligation Set from JSON text; return the parsed document."""
     try:
@@ -113,6 +154,11 @@ def parse_obligation_set(text):
         raise ObligationSetError("schema violation: " + "; ".join(
             f"{p.path}: {p.message}" for p in problems))
     canonical_bytes(document)  # semantic checks: duplicates, lone surrogates
+    for obligation in canonical_form(document)["obligations"]:
+        reason = _vacuity_problem(obligation)
+        if reason is not None:
+            raise ObligationSetError(f"obligation {obligation['obligation_id']}: vacuous statement "
+                                     f"{obligation['statement']!r}: {reason}")
     return document
 
 
