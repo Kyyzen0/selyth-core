@@ -18,14 +18,14 @@ export function gcd(a: number, b: number): number {
 }
 ```
 
-**Port to the pure subset** (`docs/specifications/ts-to-dafny.md`), two lines, both recorded in
-the header of `gcd.ts`: `return Math.abs(a)` → `return a` (identical on the `nat` domain the
-sidecar declares; the subset allows no `Math` function except `Math.floor(a / b)`), and the
-return type `: number` is added (the subset requires it). Parameter reassignment is translated
-by shadowing (see "Translator finding" below). The subset refuses the rest of the
-original repo (`for`, arrays, spreads, `Math.min`), which is why only this function is here.
-That refusal is a finding, not an accident: the translator's sign inference is conservative by
-design and can refuse correct code.
+**Port to the pure subset** (`docs/specifications/ts-to-dafny.md`), one line, recorded in
+the header of `gcd.ts`: the return type `: number` is added (the subset requires it).
+`return Math.abs(a)` is translated as-is — `Math.abs` is in the subset (an `Abs` helper on
+`int`, exact on the `nat` domain the sidecar declares), so the third-party line survives
+unchanged. Parameter reassignment is translated by shadowing (see "Translator finding" below).
+The subset still refuses the rest of the original repo (arrays, spreads, `Math.min`), which is
+why only this function is here. That refusal is a finding, not an accident: the translator's
+sign inference is conservative by design and can refuse correct code.
 
 | File | Role |
 |---|---|

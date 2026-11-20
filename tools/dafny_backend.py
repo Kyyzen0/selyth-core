@@ -201,14 +201,19 @@ def hypotheses_for(source, unit, contract_clauses):
     for number, line in enumerate(lines):
         found = marker_ids(line)
         if found and unit["obligation_id"] in found[1]:
-            own = [i for i in found[1]
-                   if i != unit["obligation_id"] and i in contract_clauses
-                   and contract_clauses[i].startswith("requires ")]
             contract = contract_marker_line(source, unit["obligation_id"])
             if contract is not None and contract != number:
+                # a loop marker: the loop's own contract clauses (a loop terminates by its own
+                # `decreases` too) plus the whole contract of the enclosing declaration
+                own = [i for i in found[1]
+                       if i != unit["obligation_id"] and i in contract_clauses]
                 found_contract = marker_ids(lines[contract])
                 own += [i for i in found_contract[1]
                         if i != unit["obligation_id"] and i in contract_clauses and i not in own]
+            else:
+                own = [i for i in found[1]
+                       if i != unit["obligation_id"] and i in contract_clauses
+                       and contract_clauses[i].startswith("requires ")]
             return [(i, contract_clauses[i]) for i in own]
     return []
 
@@ -229,21 +234,22 @@ def instantiate(source, obligation_id, clause, hypotheses=()):
         if found and obligation_id in found[1]:
             clause_line = number
             break
-    hyp_line = clause_line
-    if clause_line is not None and hypotheses:
-        contract = contract_marker_line(source, obligation_id)
-        if contract is not None and contract != clause_line:
-            hyp_line = contract
+    contract = contract_marker_line(source, obligation_id) if clause_line is not None else None
+    at_contract = contract is None or contract == clause_line
+    req_hyps = [h for h in hypotheses if h.startswith("requires ")]
+    dec_hyps = [h for h in hypotheses if h.startswith("decreases ")]
     out = []
     for number, line in enumerate(lines):
         found = marker_ids(line)
         if not found:
             out.append(line)
         elif number == clause_line:
-            own = hypotheses if hyp_line == clause_line else ()
+            own = list(hypotheses) if at_contract else dec_hyps
             out.append(f"{found[0]}{' '.join([*own, clause])}")
-        elif number == hyp_line:
-            out.append(f"{found[0]}{' '.join(hypotheses)}")
+        elif not at_contract and number == contract and req_hyps:
+            # `requires` is not legal on a loop, so the preconditions go to the contract marker;
+            # `decreases` is legal on a loop and stays there, where the loop's locals are in scope
+            out.append(f"{found[0]}{' '.join(req_hyps)}")
         else:
             out.append("")
     return "\n".join(out)

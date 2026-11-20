@@ -47,14 +47,14 @@ SPEC = property_backend.load_spec(PROJECT / "gcd.properties.json")
 # One bug per contract obligation, in the workspace, that the obligation must catch.
 MUTANTS = [
     ("GCD-01", "  requires a >= 1 || b >= 1\n{\n  var g := Gcd(a, b);", "  requires true\n{\n  var g := Gcd(a, b);"),
-    ("GCD-02", "  result := a;", "  result := a * 0;"),
+    ("GCD-02", "  result := Abs(a);", "  result := Abs(a) * 0;"),
     ("GCD-03", "    b := a % b;", "    b := a;"),
     ("GCD-04", "    a := t;", "    a := 0;"),
 ]  # GCD-04 is a loop invariant verified under the enclosing method's contract (its
    # `requires` and `decreases`): the backend gives a loop clause those clauses as
    # hypotheses (hypotheses_for), so the invariant is a standalone obligation here
 # One bug in the TypeScript, that the acceptance criteria must catch.
-SOURCE_MUTANT = ("return a;", "return a + 1;")
+SOURCE_MUTANT = ("return Math.abs(a);", "return Math.abs(a) + 1;")
 
 
 def check(ok, label, detail=""):
