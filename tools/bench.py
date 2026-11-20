@@ -54,7 +54,8 @@ def summarise(report):
     for field in _COST_FIELDS:
         values = [e[field] for e in entries if field in e]
         if values:
-            totals[field] = sum(values)
+            # peak_rss_bytes is an upper bound per run, so the module total is the max, not the sum
+            totals[field] = max(values) if field == "peak_rss_bytes" else sum(values)
     totals["timed_out"] = sum(1 for e in entries if e.get("timed_out"))
     set_subject = next(s for s in report["subject"] if s["role"] == "obligation-set")
     return {"selyth_bench_version": BENCH_VERSION,

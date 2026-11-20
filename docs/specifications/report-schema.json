@@ -322,8 +322,14 @@
           "minimum": 0
         },
         "wall_ms": { "type": "integer", "minimum": 0 },
-        "cpu_ms": { "type": "integer", "minimum": 0 },
-        "peak_rss_bytes": { "type": "integer", "minimum": 0 },
+        "cpu_ms": {
+          "description": "CPU time of the verifier subprocess (user + system), the delta of getrusage(RUSAGE_CHILDREN) around the run; exact while the backend runs one prover at a time.",
+          "type": "integer", "minimum": 0
+        },
+        "peak_rss_bytes": {
+          "description": "Peak RSS from getrusage(RUSAGE_CHILDREN).ru_maxrss (KiB on Linux, bytes on macOS): a cumulative maximum over all child processes so far, hence an upper bound for this run, not an exact per-run value.",
+          "type": "integer", "minimum": 0
+        },
         "timed_out": { "type": "boolean" }
       }
     },

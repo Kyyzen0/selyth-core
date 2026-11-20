@@ -419,6 +419,10 @@ def check_bench(dafny):
               "totals equal the per-obligation sums", f"    {t}")
         check("resource_units" in run.stdout and "wall_ms" in run.stdout,
               "the per-obligation table is printed to stdout", run.stdout[:200])
+        check(all(e.get("cpu_ms", 0) > 0 and e.get("peak_rss_bytes", 0) > 0
+                  for e in bench_doc["obligations"]),
+              "every obligation records cpu_ms and peak_rss_bytes from the verifier subprocess "
+              "(getrusage RUSAGE_CHILDREN)", f"    {[(e['obligation_id'], e.get('cpu_ms'), e.get('peak_rss_bytes')) for e in bench_doc['obligations'][:3]]}")
 
 
 def main():

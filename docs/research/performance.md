@@ -25,9 +25,11 @@ and draws the consequence for `cost_budget` — which the policy engine now actu
 ## Results
 
 CI run `44662318728`, job `test-dafny`, 2026-11-20 (`make bench` on the ledger example).
-`resource_units` are stable across runs of the same build; `wall_ms` varies run to run and is
-reported as measured. `cpu_ms` and `peak_rss_bytes` are `-`: this backend does not record them
-(only solver resource units from Dafny's CSV log, plus its own wall-clock).
+`resource_units` are stable across runs of the same build (the ledger totals 1 281 714 in both
+the CI run and a local run); `wall_ms` varies run to run and is reported as measured.
+`cpu_ms` and `peak_rss_bytes` are recorded since the backend measures the verifier subprocess
+with `getrusage(RUSAGE_CHILDREN)`: `cpu_ms` is the exact per-run delta of user+system time,
+`peak_rss_bytes` is `ru_maxrss` (a cumulative maximum, hence an upper bound per run).
 
 | Obligation | outcome | resource_units | wall_ms |
 |---|---|---|---|
@@ -52,6 +54,11 @@ reported as measured. `cpu_ms` and `peak_rss_bytes` are `-`: this backend does n
 | LED-19 | proven | 65 219 | 874 |
 | LED-20 | proven | 63 839 | 875 |
 | **TOTAL** | **accepted** | **1 281 714** | **17 699** |
+
+CPU and memory (local run, same Dafny 4.11.0 build, sandbox machine): per obligation
+`cpu_ms` 951–1 040 and `peak_rss_bytes` ≈ 109–110 MiB (the cumulative max settles after the
+first obligation); totals for the module: `cpu_ms` ≈ 20 800, `peak_rss_bytes` ≈ 2.19 GiB as a
+summed bound (the per-run bound is the ~110 MiB max).
 
 Toolchain: Dafny 4.11.0, Boogie bundled-with-dafny, z3 4.12.1. Decision: `accepted` (under the
 committed lock). `timed_out`: 0.
@@ -79,10 +86,11 @@ module of this size:
   genuinely stuck verification, not a slow machine.
 - `fast_wall_ms: 2000` stays the non-blocking fast-tier target (rule 6); measured per-obligation
   wall_ms is ~0.9 s, so the target is currently met.
-- **Do not set `max_peak_rss_bytes` (or a cpu ceiling) with this backend**: it does not record
-  those fields, and rule 6 fails closed — a capped metric that is not recorded is a
-  `BLOCK-COST-BUDGET` violation. Recording `peak_rss_bytes` (e.g. from the child process's
-  `ru_maxrss`) is the follow-up that would make that ceiling usable.
+- `max_peak_rss_bytes: 1073741824` (1 GiB) per obligation is now usable: the backend records
+  `peak_rss_bytes` from `ru_maxrss`, the observed value is ~110 MiB per obligation on the
+  ledger (max, cumulative bound), so 1 GiB leaves ~10× headroom while still catching a verifier
+  that balloons. A cpu ceiling (`cpu_ms`) is also recordable, but wall-clock and resource units
+  remain the primary ceilings — `cpu_ms` is exact, `peak_rss_bytes` is an upper bound.
 
 ## Third-party code: the gcd example
 
@@ -103,6 +111,9 @@ CI run `44676492840`, job `test-dafny`, 2026-11-20 (`make bench EXAMPLE=gcd`):
 |---|---|---|---|---|---|---|
 | ledger (hand-written) | 20 | 1 281 714 | 17 699 | ~64 086 | ~24 648 | 52 |
 | gcd (third-party) | 3 | 45 931 | 2 712 | ~15 310 | ~4 593 | 10 |
+
+CPU and memory for the gcd (local run): per obligation `cpu_ms` 891–966 and `peak_rss_bytes`
+≈ 93 MiB; module totals `cpu_ms` ≈ 2 800 and `peak_rss_bytes` (max) ≈ 93 MiB.
 
 Reading: the per-obligation cost tracks the **workspace file size**, not the obligation — each
 obligation re-verifies the whole file (ledger: 120 lines of Dafny for 52 of TS; gcd: a single
