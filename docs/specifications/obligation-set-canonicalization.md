@@ -75,6 +75,10 @@ Coverage compares two documents, so it is semantic validation (see [`validation-
 
 An obligation that was not run still appears in the report, with outcome `not-run`: omission is never a way to skip.
 
+## Binding to code: components and markers
+
+`affected_components` are paths **relative to the Obligation Set file's directory**. `obligation_set.py check-components <set.json> [base-dir]` fails (exit 1) naming every component that does not exist under the base directory (default: the set file's own): a component that is gone means the obligation is detached from the code it claims to govern (failure mode F2), and that must be visible, not silent. The Dafny backend enforces the other direction: it refuses (exit 2, no report) a proof workspace that carries a marker for an obligation id the set does not declare, and reports an obligation with no marker (or several) as `not-run` ([`dafny-backend.md`](dafny-backend.md)). Together: every obligation is bound to exactly one place in the code, and every marked place in the code belongs to a declared obligation.
+
 ## Not covered here
 
 Ambiguity records and structured assumption records (`docs/architecture/core-components.md`) are not part of this version; assumptions are strings on the obligation. Adding them changes `selyth_obligation_set_version`.

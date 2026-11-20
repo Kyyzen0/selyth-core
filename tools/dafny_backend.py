@@ -108,6 +108,16 @@ def marker_count(source, obligation_id):
                if (found := marker_ids(line)) and obligation_id in found[1])
 
 
+def workspace_marker_ids(source):
+    """Every obligation id named by any marker in the workspace, in order of appearance."""
+    ids = []
+    for line in source.split("\n"):
+        found = marker_ids(line)
+        if found:
+            ids.extend(found[1])
+    return ids
+
+
 _DECLARATION = re.compile(r"\b(?:method|function|lemma|predicate|constructor)\b(?:\s*\{[^}]*\})*\s+([A-Za-z_][A-Za-z0-9_']*)")
 
 
@@ -414,6 +424,12 @@ def build_report(ir, obligation_set, policy, workspace_bytes, workspace_name, pr
     if ir != ts_adapter.lower(obligation_set, ir["backend"]["version"]):
         raise BackendError("the IR differs from a fresh lowering of the Obligation Set (it was edited, "
                            "or made by another adapter version); regenerate it with ts_adapter.py")
+    known = {o["obligation_id"] for o in oset.canonical_form(obligation_set)["obligations"]}
+    orphans = sorted(set(workspace_marker_ids(source)) - known)
+    if orphans:
+        raise BackendError("the workspace has markers for " + ", ".join(orphans) + " but the Obligation "
+                           "Set does not declare them: a detached obligation must stay visible, so the "
+                           "workspace and the set must be regenerated together (exit 2, no report)")
     policy_digest = engine.policy_digest(policy)
     results = obligation_results(ir, source, workspace_name, dafny, solver, version,
                                  resource_limit, time_limit)

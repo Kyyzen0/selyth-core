@@ -13,6 +13,10 @@ Usage:
   obligation_set.py digest    <obligation-set.json>   print the set digest
   obligation_set.py digests   <obligation-set.json>   print each obligation digest
   obligation_set.py cover     <obligation-set.json> <report.json>
+  obligation_set.py check-components <obligation-set.json> [base-dir]
+              every affected_components must exist under base-dir (default: the set file's
+              directory); a missing component means the obligation is detached from the
+              code it claims to govern
 Exit status: 0 ok, 1 invalid or not covered, 2 usage error or unreadable input.
 """
 import hashlib
@@ -176,13 +180,50 @@ def check_coverage(obligation_set, report):
     return problems
 
 
+def missing_components(document, base_dir):
+    """The affected_components paths that do not exist under base_dir, sorted.
+
+    Components are relative to the Obligation Set file's directory
+    (docs/specifications/obligation-set-canonicalization.md): a component that is gone
+    means the obligation is detached from the code it claims to govern, which the
+    additions-only philosophy wants visible, not silent (failure mode F2).
+    """
+    base = Path(base_dir)
+    missing = set()
+    for obligation in canonical_form(document)["obligations"]:
+        for component in obligation["affected_components"]:
+            if not (base / component).is_file():
+                missing.add(component)
+    return sorted(missing)
+
+
 def _usage():
     print(__doc__.strip().split("Usage:")[1].split("Exit status")[0].rstrip())
     return 2
 
 
+def _main_check_components(args):
+    try:
+        document = load_obligation_set(args[0])
+    except ObligationSetError as exc:
+        print(f"[FAIL] {args[0]}: {exc}")
+        return 1
+    except (OSError, validate.SchemaError) as exc:
+        print(f"[ERROR] {exc}")
+        return 2
+    base = Path(args[1]) if len(args) > 1 else Path(args[0]).resolve().parent
+    missing = missing_components(document, base)
+    if missing:
+        print(f"[FAIL] {args[0]}: affected_components missing under {base}: " + ", ".join(missing))
+        return 1
+    print(f"[PASS] {args[0]}: every affected_components exists under {base}")
+    return 0
+
+
 def main(argv):
     commands = {"check": 1, "canonical": 1, "digest": 1, "digests": 1, "cover": 2}
+    if len(argv) >= 2 and argv[1] == "check-components" and len(argv) - 2 in (1, 2):
+        return _main_check_components(argv[2:])
     if len(argv) < 2 or commands.get(argv[1]) != len(argv) - 2:
         return _usage()
     command = argv[1]

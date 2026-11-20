@@ -469,6 +469,18 @@ def check_cli():
         r = run("cover", str(DEMO), str(Path(tmp) / "bad.json"))
         check(r.returncode == 1 and "OBL-0009 is in the set but omitted" in r.stdout,
               "cover exits 1 and names the omitted obligation", r.stdout)
+    gcd_set = ROOT / "docs" / "specifications" / "examples" / "gcd" / "gcd.obligations.json"
+    r = run("check-components", str(gcd_set))
+    check(r.returncode == 0 and "[PASS]" in r.stdout,
+          "check-components exits 0 when every affected_components exists next to the set", r.stdout)
+    r = run("check-components", str(DEMO))
+    check(r.returncode == 1 and "queue.ts" in r.stdout and "drain.ts" in r.stdout,
+          "check-components exits 1 and names the missing components (the queue fixture has no .ts sources)",
+          r.stdout)
+    r = run("check-components", str(gcd_set), str(DEMO.parent))
+    check(r.returncode == 1 and "gcd.ts" in r.stdout, "check-components honours an explicit base dir", r.stdout)
+    r = run("check-components")
+    check(r.returncode == 2, "check-components without arguments is a usage error (exit 2)")
 
 
 def main():

@@ -108,6 +108,22 @@ def check_units():
     check(backend.marker_count(source, "OBL-0007") == 1 and backend.marker_count(source, "OBL-9999") == 0,
           "markers are counted per obligation")
 
+    heading("Workspace markers must belong to the Obligation Set (anti-detachment, F2)")
+    doc = osets.demo()
+    ir = adapter.lower(doc, "4.11.0")
+    orphan_ws = (WORKSPACE.read_text(encoding="utf-8")
+                 + "method Ghost()\n  // selyth:obligation OBL-9999\n{ }\n")
+    check(sorted(set(backend.workspace_marker_ids(source))) == ["OBL-0007", "OBL-0008", "OBL-0009"]
+          and "OBL-9999" in backend.workspace_marker_ids(orphan_ws),
+          "workspace_marker_ids lists every id any marker names")
+    try:
+        backend.build_report(ir, doc, POLICY, orphan_ws.encode("utf-8"), "queue.workspace.dfy",
+                             PRODUCED_AT, None, None, "4.11.0", 1, 1)
+        check(False, "an orphan marker is refused before any Dafny run", "    a report was produced")
+    except backend.BackendError as exc:
+        check("OBL-9999" in str(exc) and "does not declare" in str(exc),
+              "a marker for an id the set does not declare is refused: exit 2, no report", f"    {exc}")
+
     heading("Several obligations at one marker: postconditions are verified under the preconditions")
     shared = "method M()\n  // selyth:obligation A B C\n{ }"
     unit = lambda oid, kw: {"obligation_id": oid, "clause": {"keyword": kw, "expression": "e"}}
