@@ -100,6 +100,33 @@ export function decodeUtf8(bytes: Uint8Array): string {
 
 const schemaUrl = new URL("../../docs/specifications/obligation-set-schema.json", import.meta.url);
 
+const SELF_COMPARISON = /^([A-Za-z_][A-Za-z0-9_]*)\s*(==|<=|>=)\s*\1$/;
+
+/** Why an obligation expression would prove nothing, or null. Mirrors the Python lint in
+ *  tools/obligation_set.py exactly: only syntactic vacuity is refused — the literal `true`,
+ *  and a name compared with itself (`x == x`, `x <= x`, `x >= x`), optionally parenthesised. */
+function vacuousReason(expression: string): string | null {
+  let text = expression.trim();
+  while (text.startsWith("(") && text.endsWith(")")) {
+    let depth = 0;
+    let wraps = true;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (ch === "(") depth++;
+      else if (ch === ")") {
+        depth--;
+        if (depth === 0 && i < text.length - 1) { wraps = false; break; }
+      }
+    }
+    if (!wraps) break;
+    text = text.slice(1, -1).trim();
+  }
+  if (text === "true") return "the expression is the literal `true`";
+  const m = SELF_COMPARISON.exec(text);
+  if (m) return `a comparison of ${JSON.stringify(m[1])} with itself is always true`;
+  return null;
+}
+
 /** Parse strictly, validate against the shared JSON Schema, then run the semantic checks. */
 export function parseObligationSet(text: string): ObligationSet {
   let parsed: Json;
@@ -115,6 +142,15 @@ export function parseObligationSet(text: string): ObligationSet {
     throw new ObligationSetError("schema violation: " + (validate.errors ?? []).map((e) => `${e.instancePath || "$"} ${e.message}`).join("; "));
   }
   const document = parsed as unknown as ObligationSet;
-  canonicalForm(document); // duplicates after normalisation
+  const canonical = canonicalForm(document); // duplicates after normalisation
+  for (const obligation of canonical.obligations) {
+    const m = /^(\S+)\s+(.*)$/.exec(obligation.statement);
+    if (!m) continue; // no expression after the keyword: the adapter reports it as unsupported
+    const reason = vacuousReason(m[2]);
+    if (reason !== null) {
+      throw new ObligationSetError(`obligation ${obligation.obligation_id}: vacuous statement ` +
+        `${JSON.stringify(obligation.statement)}: ${reason}`);
+    }
+  }
   return document;
 }

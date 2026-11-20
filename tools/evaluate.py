@@ -96,6 +96,17 @@ def apply_edits(environment, edits):
             if len(kept) != len(env[target]["obligations"]) - len(edit["remove"]):
                 raise EvaluationError("removing an obligation that does not exist")
             env[target]["obligations"] = kept
+            if target == "obligations":
+                # The workspace is regenerated from the translation sidecar below; an agent that
+                # deletes an obligation also drops its markers there, so the regenerated workspace
+                # stays consistent with the set (a stale marker is refused by the backend itself).
+                removed = set(edit["remove"])
+                for fn in env["translation"].get("functions", {}).values():
+                    if isinstance(fn.get("obligations"), list):
+                        fn["obligations"] = [i for i in fn["obligations"] if i not in removed]
+                    loop = fn.get("loop")
+                    if isinstance(loop, dict) and isinstance(loop.get("obligations"), list):
+                        loop["obligations"] = [i for i in loop["obligations"] if i not in removed]
         elif "set" in edit:
             for oid, fields in edit["set"].items():
                 entry = next(o for o in env[target]["obligations"] if o["obligation_id"] == oid)
