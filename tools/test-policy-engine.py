@@ -265,6 +265,27 @@ def check_scenarios():
         r, "OBL-0008")["evidence"].update(assumptions=[])), document)
     check(d["result"] == "rejected" and [v["obligation_id"] for v in d["violations"]] == ["OBL-0008"],
           "non_empty_assumptions: only the obligation with an empty list lacks it", f"    {d}")
+    d = decide(no_assumptions, build_report(no_assumptions, document), document)
+    check(d["result"] == "accepted",
+          "non_empty_assumptions, literal fail-closed reading: declared assumptions satisfy it",
+          f"    {d}")
+
+    heading("requires_intent_corroboration: a guard, never an accept condition")
+    need_corr = accept_all_policy()
+    need_corr["rules"][0]["requires"] = {"min_evidence_kind": "kernel-proven",
+                                         "requires_intent_corroboration": True}
+    d = decide(need_corr, build_report(need_corr, document), document)
+    check(d["result"] == "rejected" and rule_ids(d) == ["DEFAULT-NO-RULE-DECIDES"] * 3,
+          "an accept rule requiring intent corroboration accepts nothing that is proven "
+          "(one evidence entry per obligation)", f"    {d}")
+    esc_corr = accept_all_policy()
+    esc_corr["rules"] = [{"rule_id": "RULE-ESC-CORR", "applies_to": {"all_obligations": True},
+                          "requires": {"requires_intent_corroboration": True},
+                          "action": "escalate", "escalate_to": "owner"}]
+    d = decide(esc_corr, build_report(esc_corr, document), document)
+    check(d["result"] == "needs-human"
+          and [e["reason"].split(":")[0] for e in d["escalations"]] == ["RULE-ESC-CORR"] * 3,
+          "an escalate guard on intent corroboration fires for every proven obligation", f"    {d}")
 
     heading("Cost budget: the gate stays inside human attention (manifesto 9)")
     # accept_all_policy carries good_policy's cost_budget:
@@ -713,6 +734,8 @@ def check_lock():
         check(made.returncode == 0 and json.loads(made.stdout) == lock, "CLI: `lock` prints the lock for a policy and a set")
         lk = write("lock.json", lock)
         check(cli("decide", pol, rep, doc, "--lock", lk).returncode == 0, "CLI: decide --lock accepts the approved run")
+        check(cli("decide", pol, rep, doc, f"--lock={lk}").returncode == 0,
+              "CLI: the --lock=PATH (equals) form works too")
         wp = write("wp.json", weaker)
         wr = write("wr.json", build_report(weaker, document))
         run = cli("decide", wp, wr, doc, "--lock", lk)

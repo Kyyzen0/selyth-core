@@ -298,6 +298,8 @@ def check_cli():
                   "--backend-version", BACKEND).returncode == 1, "an invalid Obligation Set exits 1")
     run = run_cli("lower", str(DEMO), "--backend-version", BACKEND)
     check(run.returncode == 0 and json.loads(run.stdout)["backend"]["version"] == BACKEND, "lower exits 0 and prints the IR")
+    check(run_cli("lower", str(DEMO), "--backend-version=" + BACKEND).returncode == 0,
+          "--backend-version=VERSION (equals form) exits 0 too")
 
 
 def main():

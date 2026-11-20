@@ -19,6 +19,7 @@ Usage:
 Exit status: decide/replay 0 accepted (replay: report's decision reproduced),
 1 rejected (replay: not reproduced), 3 needs-human, 2 usage or unreadable/invalid input.
 """
+import argparse
 import hashlib
 import json
 import sys
@@ -359,41 +360,45 @@ def evaluate_files(policy_path, report_path, set_path, lock_path=None):
     return policy, report, document, load_lock(lock_path) if lock_path else None
 
 
+def build_parser():
+    ap = argparse.ArgumentParser(prog="policy_engine.py",
+                                 description=__doc__.split("Usage:")[0].strip())
+    sub = ap.add_subparsers(dest="command", required=True)
+    for name, help_text in (("decide", "decide (policy, report, obligation set)"),
+                            ("replay", "check that a report's recorded decision is the engine's")):
+        p = sub.add_parser(name, help=help_text)
+        p.add_argument("policy")
+        p.add_argument("report")
+        p.add_argument("obligation_set", metavar="obligation-set")
+        p.add_argument("--lock", help="the human-approved lock (policy + Obligation Set digests)")
+    sub.add_parser("policy-digest", help="print the canonical digest of a policy").add_argument("policy")
+    lock = sub.add_parser("lock", help="print the lock a human approves for a policy and a set")
+    lock.add_argument("policy")
+    lock.add_argument("obligation_set", metavar="obligation-set")
+    lock.add_argument("--approved-by", required=True, help="the approving human")
+    return ap
+
+
 def main(argv):
-    args = argv[1:]
-    lock_path = approved_by = None
-    for flag in ("--lock", "--approved-by"):
-        if flag in args:
-            i = args.index(flag)
-            if i + 1 >= len(args):
-                args = []
-                break
-            value = args[i + 1]
-            del args[i:i + 2]
-            lock_path, approved_by = (value, approved_by) if flag == "--lock" else (lock_path, value)
-    arity = {"decide": 3, "replay": 3, "policy-digest": 1, "lock": 2}
-    if not args or arity.get(args[0]) != len(args) - 1 or (args[0] == "lock") != bool(approved_by) \
-            or (approved_by and lock_path):
-        print(__doc__.strip().split("Usage:")[1].split("Exit status")[0].rstrip())
-        return 2
-    command, files = args[0], args[1:]
+    args = build_parser().parse_args(argv[1:])
     try:
-        if command == "policy-digest":
-            print(policy_digest(validate.load_json(files[0])))
+        if args.command == "policy-digest":
+            print(policy_digest(validate.load_json(args.policy)))
             return 0
-        if command == "lock":
+        if args.command == "lock":
             # An approval artifact for a document that cannot be used would have to be redone.
-            print(json.dumps(make_lock(load_valid(files[0], "policy", "policy-schema.json"),
-                                       oset.load_obligation_set(files[1]), approved_by),
+            print(json.dumps(make_lock(load_valid(args.policy, "policy", "policy-schema.json"),
+                                       oset.load_obligation_set(args.obligation_set), args.approved_by),
                              indent=2, sort_keys=True))
             return 0
-        policy, report, document, lock = evaluate_files(*files, lock_path)
+        policy, report, document, lock = evaluate_files(args.policy, args.report, args.obligation_set,
+                                                         getattr(args, "lock", None))
     except (OSError, ValueError, oset.ObligationSetError, validate.SchemaError) as exc:
         print(f"[ERROR] {exc}")
         return 2
-    if command == "replay":
+    if args.command == "replay":
         same = replay(policy, report, document, lock)
-        print(f"[{'PASS' if same else 'FAIL'}] the decision recorded in {files[1]} "
+        print(f"[{'PASS' if same else 'FAIL'}] the decision recorded in {args.report} "
               f"{'is' if same else 'is not'} what the engine decides")
         return 0 if same else 1
     decision = decide(policy, report, document, lock)

@@ -13,6 +13,7 @@ Usage:
   ts_adapter.py lower <obligation-set.json> --backend-version <version>
 Exit status: 0 ok, 1 invalid Obligation Set, 2 usage error or unreadable input.
 """
+import argparse
 import hashlib
 import json
 import re
@@ -248,19 +249,29 @@ def render(ir):
     return json.dumps(ir, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
 
 
+def build_parser():
+    ap = argparse.ArgumentParser(prog="ts_adapter.py",
+                                 description=__doc__.split("Usage:")[0].strip())
+    sub = ap.add_subparsers(dest="command", required=True)
+    lower = sub.add_parser("lower", help="lower an Obligation Set to the Verification IR")
+    lower.add_argument("obligation_set", metavar="obligation-set",
+                       help="the Obligation Set JSON file")
+    lower.add_argument("--backend-version", required=True,
+                       help="the declared version of the verification tool (e.g. 4.11.0)")
+    return ap
+
+
 def main(argv):
-    if len(argv) != 5 or argv[1] != "lower" or argv[3] != "--backend-version" or not argv[4]:
-        print("usage: ts_adapter.py lower <obligation-set.json> --backend-version <version>")
-        return 2
+    args = build_parser().parse_args(argv[1:])
     try:
-        document = oset.load_obligation_set(argv[2])
+        document = oset.load_obligation_set(args.obligation_set)
     except oset.ObligationSetError as exc:
-        print(f"[FAIL] {argv[2]}: {exc}", file=sys.stderr)
+        print(f"[FAIL] {args.obligation_set}: {exc}", file=sys.stderr)
         return 1
     except OSError as exc:
         print(f"[ERROR] {exc}", file=sys.stderr)
         return 2
-    sys.stdout.buffer.write(render(lower(document, argv[4])).encode("utf-8"))
+    sys.stdout.buffer.write(render(lower(document, args.backend_version)).encode("utf-8"))
     return 0
 
 
