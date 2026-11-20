@@ -145,7 +145,7 @@ export function parseObligationSet(text: string): ObligationSet {
   const canonical = canonicalForm(document); // duplicates after normalisation
   for (const obligation of canonical.obligations) {
     const m = /^(\S+)\s+(.*)$/.exec(obligation.statement);
-    if (!m) continue; // no expression after the keyword: the adapter reports it as unsupported
+    if (!m || m[2] === undefined) continue; // no expression after the keyword: the adapter reports it as unsupported
     const reason = vacuousReason(m[2]);
     if (reason !== null) {
       throw new ObligationSetError(`obligation ${obligation.obligation_id}: vacuous statement ` +
