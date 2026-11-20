@@ -160,7 +160,7 @@ def check_units():
           "a contract-marker clause keeps only the requires clauses of its own marker")
     inst = backend.instantiate(loop_src, "I", "invariant b <= a", ["requires a > 0", "decreases a"])
     lines = inst.split("\n")
-    check(lines[1] == "  requires a > 0 decreases a" and lines[5] == "    invariant b <= a"
+    check(lines[1] == "  requires a > 0" and lines[5] == "    decreases a invariant b <= a"
           and inst.count("\n") == loop_src.count("\n") and not any(backend.MARKER.match(l) for l in lines),
           "the hypotheses go to the contract marker, the loop clause to the loop marker, line numbers kept")
     loop_no_contract = ("method N(a: nat)\n{\n  var b := a;\n  while b != 0\n"
