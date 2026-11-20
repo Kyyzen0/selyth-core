@@ -15,6 +15,7 @@ Prints the report. Exit status: 0 accepted, 1 rejected, 3 needs-human,
 2 usage error, unreadable input, or a tool that is not the declared one.
 """
 import argparse
+import bisect
 import csv
 import hashlib
 import json
@@ -41,7 +42,8 @@ DEFAULT_TIME_LIMIT = 60
 
 # `// selyth:obligation OBL-1 OBL-2 ...` marks where the clauses of one contract go. Several
 # identifiers may share a marker: the postconditions of a method are verified under the
-# preconditions written at the same place (see hypotheses_for).
+# preconditions written at the same place, and a clause inside the body (a loop marker) under
+# the whole contract of the enclosing declaration (see hypotheses_for).
 MARKER = re.compile(r"^([ \t]*)// selyth:obligation((?:[ \t]+\S+)+)[ \t]*$")
 # Constructs that make a Dafny proof depend on something Dafny did not check, or that the
 # report does not bind. `expect` is verified as an assumption (it is checked only at run
@@ -141,40 +143,100 @@ def call_sites(source, name):
     return count
 
 
-def hypotheses_for(source, unit, requires_by_id):
-    """The preconditions an obligation is verified under: [(id, clause)].
+def _declaration_lines(source):
+    """[(line number, name)] of every declaration in the workspace (comments stripped)."""
+    text = strip_comments(source)
+    starts = [0] + [m.end() for m in re.finditer("\n", text)]
+    return [(bisect.bisect_right(starts, m.start()) - 1, m.group(1))
+            for m in _DECLARATION.finditer(text)]
 
-    A postcondition, invariant or decreases clause is verified together with the `requires`
-    clauses of the other obligations at its own marker, in marker order: a contract is
-    proved under its preconditions, and each precondition is itself verified at the call
-    sites in the workspace. A `requires` obligation is verified alone, so that those call
-    sites are the only thing that can make it pass. Nothing else is ever assumed.
+
+def contract_marker_line(source, obligation_id):
+    """Line of the contract marker (the first marker after the declaration line) of the
+    declaration enclosing the obligation's marker; None when the obligation's own marker is
+    that contract marker, or when the enclosing declaration has no marker of its own."""
+    lines = source.split("\n")
+    marker_line = None
+    for number, line in enumerate(lines):
+        found = marker_ids(line)
+        if found and obligation_id in found[1]:
+            marker_line = number
+            break
+    if marker_line is None:
+        return None
+    decls = [n for n, _ in _declaration_lines(source) if n < marker_line]
+    if not decls:
+        return None
+    for number in range(max(decls) + 1, marker_line):
+        if marker_ids(lines[number]):
+            return number
+    return None
+
+
+def hypotheses_for(source, unit, contract_clauses):
+    """The contract clauses an obligation is verified under: [(id, clause)].
+
+    A clause at a declaration's contract marker is verified with the `requires` clauses of
+    the other obligations at its own marker, in marker order: a contract is proved under its
+    preconditions, and each precondition is itself verified at the call sites in the
+    workspace. A clause inside the body (a loop marker) is verified with the whole contract
+    of the enclosing declaration — its `requires`, and its `decreases`, because a loop
+    terminates by the method's measure — since that is the context in which Dafny checks a
+    loop. A `requires` obligation is verified alone, so that those call sites are the only
+    thing that can make it pass. Nothing else is ever assumed.
     """
     if unit["clause"]["keyword"] == "requires":
         return []
-    for line in source.split("\n"):
+    lines = source.split("\n")
+    for number, line in enumerate(lines):
         found = marker_ids(line)
         if found and unit["obligation_id"] in found[1]:
-            return [(i, requires_by_id[i]) for i in found[1]
-                    if i != unit["obligation_id"] and i in requires_by_id]
+            own = [i for i in found[1]
+                   if i != unit["obligation_id"] and i in contract_clauses
+                   and contract_clauses[i].startswith("requires ")]
+            contract = contract_marker_line(source, unit["obligation_id"])
+            if contract is not None and contract != number:
+                found_contract = marker_ids(lines[contract])
+                own += [i for i in found_contract[1]
+                        if i != unit["obligation_id"] and i in contract_clauses and i not in own]
+            return [(i, contract_clauses[i]) for i in own]
     return []
 
 
 def instantiate(source, obligation_id, clause, hypotheses=()):
-    """Put `clause` (after any `hypotheses` clauses) where the obligation's marker is; blank
-    the other markers.
+    """Put `clause` at the obligation's marker and the `hypotheses` (contract clauses) where
+    Dafny expects them: at the obligation's own marker when that is a contract marker, at the
+    enclosing contract's marker when the clause sits inside the body (a loop marker accepts
+    only loop clauses). Blank every other marker.
 
     The clauses share the marker's line, so line numbers are preserved and Dafny's
     diagnostics point into the workspace.
     """
-    lines = []
-    for line in source.split("\n"):
+    lines = source.split("\n")
+    clause_line = None
+    for number, line in enumerate(lines):
         found = marker_ids(line)
-        if found:
-            lines.append(f"{found[0]}{' '.join([*hypotheses, clause])}" if obligation_id in found[1] else "")
+        if found and obligation_id in found[1]:
+            clause_line = number
+            break
+    hyp_line = clause_line
+    if clause_line is not None and hypotheses:
+        contract = contract_marker_line(source, obligation_id)
+        if contract is not None and contract != clause_line:
+            hyp_line = contract
+    out = []
+    for number, line in enumerate(lines):
+        found = marker_ids(line)
+        if not found:
+            out.append(line)
+        elif number == clause_line:
+            own = hypotheses if hyp_line == clause_line else ()
+            out.append(f"{found[0]}{' '.join([*own, clause])}")
+        elif number == hyp_line:
+            out.append(f"{found[0]}{' '.join(hypotheses)}")
         else:
-            lines.append(line)
-    return "\n".join(lines)
+            out.append("")
+    return "\n".join(out)
 
 
 def resolve_dafny(path=None):
@@ -238,7 +300,7 @@ def _child_cost(before, after):
 
 
 def run_obligation(dafny, solver, workspace_name, source, unit, resource_limit, time_limit,
-                   requires_by_id=None):
+                   contract_clauses=None):
     """Verify one obligation; return (outcome, diagnostics, cost)."""
     oid, clause = unit["obligation_id"], unit["clause"]
     cost = {"timed_out": False}
@@ -255,7 +317,7 @@ def run_obligation(dafny, solver, workspace_name, source, unit, resource_limit, 
         if name is None or call_sites(source, name) == 0:
             return "unknown", [f"{oid} is a precondition, but the workspace has no call site of "
                                f"{name or 'its method'}: verifying it would prove nothing"], cost
-    hypotheses = [c for _, c in hypotheses_for(source, unit, requires_by_id or {})]
+    hypotheses = [c for _, c in hypotheses_for(source, unit, contract_clauses or {})]
     text = instantiate(source, oid, f"{clause['keyword']} {clause['expression']}", hypotheses)
     with tempfile.TemporaryDirectory(prefix="selyth-dafny-") as tmp:
         path = Path(tmp) / workspace_name
@@ -306,16 +368,18 @@ def obligation_results(ir, source, workspace_name, dafny, solver, version, resou
                 "affected_components": components}
 
     escapes = trust_escapes(source)
-    requires_by_id = {u["obligation_id"]: f"requires {u['clause']['expression']}" for u in ir["units"]
-                      if u["clause"]["keyword"] == "requires"}
+    contract_clauses = {u["obligation_id"]: f"{u['clause']['keyword']} {u['clause']['expression']}"
+                        for u in ir["units"] if u["clause"]["keyword"] in ("requires", "decreases")}
     for unit in ir["units"]:
         oid, clause = unit["obligation_id"], unit["clause"]
-        under = hypotheses_for(source, unit, requires_by_id)
+        under = hypotheses_for(source, unit, contract_clauses)
         scope = (f"Dafny {version} verification of `{clause['keyword']} {clause['expression']}` "
                  f"with the clauses written by hand in {workspace_name}, one obligation at a time"
-                 + (f", under the preconditions {', '.join(i for i, _ in under)}" if under else "")
+                 + (f", under the clauses {', '.join(i for i, _ in under)} of its contract" if under else "")
                  + f" (resource limit {resource_limit}, time limit {time_limit}s, z3 {Z3_VERSION})")
-        premises = unit["context"]["assumptions"] + [f"{i} holds at every call site: {c}" for i, c in under]
+        premises = unit["context"]["assumptions"] + [
+            (f"{i} holds at every call site: {c}" if c.startswith("requires ") else f"{i}: {c}")
+            for i, c in under]
         if escapes:
             outcome, cost = "failed", {"timed_out": False}
             diagnostics = [f"forbidden construct {name} at line {line} of {workspace_name}: the proof "
@@ -323,7 +387,7 @@ def obligation_results(ir, source, workspace_name, dafny, solver, version, resou
                            for line, name in escapes]
         else:
             outcome, diagnostics, cost = run_obligation(dafny, solver, workspace_name, source, unit,
-                                                        resource_limit, time_limit, requires_by_id)
+                                                        resource_limit, time_limit, contract_clauses)
         entry = {**base(unit, unit["context"]["affected_components"]), "outcome": outcome,
                  "evidence": evidence(outcome, tool, scope, premises, cost)}
         if diagnostics:

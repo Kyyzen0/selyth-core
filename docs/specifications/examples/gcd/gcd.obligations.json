@@ -38,6 +38,17 @@
       "affected_components": [
         "gcd.ts"
       ]
+    },
+    {
+      "obligation_id": "GCD-04",
+      "kind": "invariant",
+      "statement": "invariant a >= 1 || b >= 1",
+      "required_evidence_kind": "kernel-proven",
+      "intent_statement": "Throughout the loop at least one operand is positive, so the remainder stays in nat.",
+      "assumptions": [],
+      "affected_components": [
+        "gcd.ts"
+      ]
     }
   ]
 }

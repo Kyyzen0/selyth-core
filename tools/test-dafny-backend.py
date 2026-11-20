@@ -126,6 +126,34 @@ def check_units():
     check(backend.instantiate(shared, "A", "requires a").split("\n")[1] == "  requires a",
           "a precondition is instantiated alone")
 
+    heading("A loop clause is verified under the contract of the enclosing declaration")
+    loop_src = ("method M(a: nat)\n  // selyth:obligation A D\n{\n  var b := a;\n"
+                "  while b != 0\n    // selyth:obligation I\n  {\n    b := b - 1;\n  }\n}")
+    clauses = {"A": "requires a > 0", "D": "decreases a", "I": "invariant b <= a"}
+    unit_i = {"obligation_id": "I", "clause": {"keyword": "invariant", "expression": "b <= a"}}
+    check(backend.contract_marker_line(loop_src, "I") == 1
+          and backend.contract_marker_line(loop_src, "A") is None,
+          "the contract marker is the first marker after the declaration line")
+    check(backend.hypotheses_for(loop_src, unit_i, clauses) == [("A", "requires a > 0"), ("D", "decreases a")],
+          "a loop invariant takes the enclosing contract's requires and decreases as hypotheses")
+    check(backend.hypotheses_for(loop_src, unit("A", "requires"), clauses) == [],
+          "a precondition is still verified alone, even with a loop in the body")
+    unit_d = {"obligation_id": "D", "clause": {"keyword": "decreases", "expression": "a"}}
+    check(backend.hypotheses_for(loop_src, unit_d, clauses) == [("A", "requires a > 0")],
+          "a contract-marker clause keeps only the requires clauses of its own marker")
+    inst = backend.instantiate(loop_src, "I", "invariant b <= a", ["requires a > 0", "decreases a"])
+    lines = inst.split("\n")
+    check(lines[1] == "  requires a > 0 decreases a" and lines[5] == "    invariant b <= a"
+          and inst.count("\n") == loop_src.count("\n") and not any(backend.MARKER.match(l) for l in lines),
+          "the hypotheses go to the contract marker, the loop clause to the loop marker, line numbers kept")
+    loop_no_contract = ("method N(a: nat)\n{\n  var b := a;\n  while b != 0\n"
+                        "    // selyth:obligation J\n  {\n    b := b - 1;\n  }\n}")
+    check(backend.contract_marker_line(loop_no_contract, "J") is None
+          and backend.hypotheses_for(loop_no_contract, {"obligation_id": "J",
+                                                       "clause": {"keyword": "invariant", "expression": "b <= a"}},
+                                      clauses) == [],
+          "a loop in a declaration with no contract marker gets no hypotheses (fail-closed)")
+
     heading("Call sites of a precondition")
     for text, want in (
             ("method M(x: int)\n  // selyth:obligation A\n{ }", "M"),

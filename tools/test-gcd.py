@@ -42,9 +42,10 @@ MUTANTS = [
     ("GCD-01", "  requires a >= 1 || b >= 1\n{\n  var g := Gcd(a, b);", "  requires true\n{\n  var g := Gcd(a, b);"),
     ("GCD-02", "  result := a;", "  result := a * 0;"),
     ("GCD-03", "    b := a % b;", "    b := a;"),
-]  # the loop invariant stays scaffolding in gcd.translation.json: the backend verifies a
-   # loop obligation alone, without the method's preconditions, so an invariant that needs
-   # one cannot be an obligation here (see the example README)
+    ("GCD-04", "    a := t;", "    a := 0;"),
+]  # GCD-04 is a loop invariant verified under the enclosing method's contract (its
+   # `requires` and `decreases`): the backend gives a loop clause those clauses as
+   # hypotheses (hypotheses_for), so the invariant is a standalone obligation here
 
 
 def check(ok, label, detail=""):
@@ -72,7 +73,7 @@ def build(dafny, solver, version, workspace=None, lock=LOCK):
 
 def main():
     heading("The third-party module and its Obligation Set")
-    check(len(SET["obligations"]) == 3, "three obligations: precondition, postcondition, termination",
+    check(len(SET["obligations"]) == 4, "four obligations: precondition, postcondition, termination, loop invariant",
           f"    {[o['obligation_id'] for o in SET['obligations']]}")
     check(LOCK == engine.make_lock(POLICY, SET, LOCK["approved_by"]),
           "the committed lock is the lock of this policy and this set")
@@ -95,7 +96,7 @@ def main():
     check(tdb.valid(report), "the report is valid for report-schema.json",
           "    " + "; ".join(f"{p.path} {p.message}" for p in validate.validate(report, tdb.REPORT_SCHEMA)))
     outcomes = {o["obligation_id"]: o["outcome"] for o in report["obligations"]}
-    check(set(outcomes.values()) == {"proven"} and len(outcomes) == 3, "three obligations, all proven",
+    check(set(outcomes.values()) == {"proven"} and len(outcomes) == 4, "four obligations, all proven",
           f"    {outcomes}")
     check(report["decision"]["result"] == "accepted" and engine.replay(POLICY, report, SET, LOCK),
           "the policy engine accepts the report under the lock, and replays its decision",

@@ -19,9 +19,12 @@
         "GCD-02",
         "GCD-03"
       ],
-      "heading": "Gcd: GCD-01 .. GCD-03",
+      "heading": "Gcd: GCD-01 .. GCD-04",
       "loop": {
-        "invariant": "a >= 1 || b >= 1"
+        "invariant": "a >= 1 || b >= 1",
+        "obligations": [
+          "GCD-04"
+        ]
       },
       "callers": "method UseGcd(a: nat, b: nat)\n  requires a >= 1 || b >= 1\n{\n  var g := Gcd(a, b);\n}"
     }
