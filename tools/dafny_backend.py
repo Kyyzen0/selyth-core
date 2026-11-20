@@ -20,6 +20,7 @@ import hashlib
 import json
 import os
 import re
+import resource
 import subprocess
 import sys
 import tempfile
@@ -223,6 +224,19 @@ def parse_dafny(text, returncode):
     return "proven", []
 
 
+def _child_cost(before, after):
+    """cpu_ms and peak_rss_bytes of the verifier subprocess, from getrusage(RUSAGE_CHILDREN).
+
+    cpu_ms is the exact delta of user+system time over all children (this backend runs one
+    prover at a time). peak_rss_bytes is after.ru_maxrss (KiB on Linux, bytes on macOS): a
+    cumulative *maximum* over all children so far, hence an upper bound for this run, not an
+    exact per-run value — recorded as such in the report schema.
+    """
+    cpu_s = (after.ru_utime + after.ru_stime) - (before.ru_utime + before.ru_stime)
+    rss_unit = 1024 if sys.platform.startswith("linux") else 1
+    return {"cpu_ms": max(0, int(cpu_s * 1000)), "peak_rss_bytes": after.ru_maxrss * rss_unit}
+
+
 def run_obligation(dafny, solver, workspace_name, source, unit, resource_limit, time_limit,
                    requires_by_id=None):
     """Verify one obligation; return (outcome, diagnostics, cost)."""
@@ -252,12 +266,17 @@ def run_obligation(dafny, solver, workspace_name, source, unit, resource_limit, 
                    "--verification-time-limit", str(time_limit),
                    "--log-format", f"csv;LogFileName={log}", str(path)]
         started = time.monotonic()
+        before = resource.getrusage(resource.RUSAGE_CHILDREN)
         try:
             run = subprocess.run(command, capture_output=True, text=True, timeout=time_limit * 4 + 60)
         except subprocess.TimeoutExpired:
-            cost.update(wall_ms=int((time.monotonic() - started) * 1000), timed_out=True)
+            after = resource.getrusage(resource.RUSAGE_CHILDREN)
+            cost.update(wall_ms=int((time.monotonic() - started) * 1000), timed_out=True,
+                        **_child_cost(before, after))
             return "timeout", ["the Dafny process was killed after its wall-clock allowance"], cost
+        after = resource.getrusage(resource.RUSAGE_CHILDREN)
         cost["wall_ms"] = int((time.monotonic() - started) * 1000)
+        cost.update(_child_cost(before, after))
         output = (run.stdout + run.stderr).replace(str(path), workspace_name)
         if log.exists():
             with log.open(newline="", encoding="utf-8") as handle:

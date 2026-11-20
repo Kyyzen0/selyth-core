@@ -57,9 +57,20 @@ def main():
     check(bench.summarise(report_fixture()) == bench_doc, "summarise is deterministic (pure)")
     check(bench_doc["totals"]["resource_units"] == 63182
           and bench_doc["totals"]["wall_ms"] == 134
+          and bench_doc["totals"]["peak_rss_bytes"] == 188743680
           and bench_doc["totals"]["obligations"] == 1
           and bench_doc["totals"]["timed_out"] == 0,
-          "totals are the per-obligation sums", f"    {bench_doc['totals']}")
+          "totals are the per-obligation sums (max for peak_rss_bytes, an upper bound)",
+          f"    {bench_doc['totals']}")
+    two = copy.deepcopy(report_fixture())
+    second = copy.deepcopy(two["obligations"][0])
+    second["obligation_id"] = "OBL-2"
+    second["evidence"]["cost"]["peak_rss_bytes"] = 999
+    two["obligations"].append(second)
+    b3 = bench.summarise(two)
+    check(b3["totals"]["peak_rss_bytes"] == 188743680 and b3["totals"]["resource_units"] == 2 * 63182,
+          "with two obligations, peak_rss_bytes total is the max and resource_units the sum",
+          f"    {b3['totals']}")
     check(bench_doc["decision"] == "accepted" and bench_doc["policy_digest"] == "sha256:" + "c" * 64,
           "decision and digests are carried over for context")
 
