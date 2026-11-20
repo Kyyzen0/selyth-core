@@ -56,8 +56,11 @@ Blocks come first and cannot be overridden by any rule. Evidence strength is the
 | 4e | the same, where suppression is allowed, with no `waiver_id` | violation | `BLOCK-WAIVER-MISSING` |
 | 4f | more waivers than `suppression.max_active` (the first by `obligation_id` stand) | violation for the excess | `BLOCK-WAIVER-LIMIT` |
 | 5 | evidence weaker than the Obligation Set's `required_evidence_kind` | violation | `BLOCK-EVIDENCE-BELOW-REQUIRED` |
+| 6 | the evidence cost exceeds a `cost_budget` ceiling, or a capped metric is not recorded at all | violation | `BLOCK-COST-BUDGET` |
 
 Row 4 repeats what the report schema forbids, so the engine does not depend on its input having been schema-checked. Row 5 reads the requirement from the frozen Obligation Set, not from what the report says. An escalation chosen by rows 2 or 3 goes to `policy.escalation.requested_of`, or to `approved_by` if absent.
+
+Row 6 enforces `cost_budget` (`policy-schema.json`), the ceilings that keep the gate inside human attention: `max_resource_units` caps `cost.resource_units`, `max_peak_rss_bytes` caps `cost.peak_rss_bytes`, and `deep_wall_ms` caps `cost.wall_ms`. A capped metric the report does not record is a violation too, because an unrecorded cost cannot be shown to be inside the budget. `fast_wall_ms` is the fast tier's target, not a block: a check between `fast_wall_ms` and `deep_wall_ms` is slow but accepted. With no `cost_budget` in the policy, no cost is checked.
 
 ## Step 3 — policy rules
 
@@ -79,4 +82,5 @@ Outcome `passed` is the empirical counterpart of `proven`: a property test, a ru
 ## What this version cannot do
 
 - `requires_intent_corroboration` can never be met together with a proof, for the same reason (one evidence entry per obligation); an `escalate` guard on it fires for every obligation it reaches.
-- `cost_budget`, `suppression` and the fields a report echoes from the set (`statement`, `kind`, …) are not enforced.
+- `non_empty_assumptions` is read literally: the evidence lists at least one assumption.
+- `fast_wall_ms` is a target, not a block (row 6); `suppression.requires_human_approval` is procedural — the waiver id records an approval the engine cannot verify.

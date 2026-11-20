@@ -266,6 +266,37 @@ def check_scenarios():
     check(d["result"] == "rejected" and [v["obligation_id"] for v in d["violations"]] == ["OBL-0008"],
           "non_empty_assumptions: only the obligation with an empty list lacks it", f"    {d}")
 
+    heading("Cost budget: the gate stays inside human attention (manifesto 9)")
+    # accept_all_policy carries good_policy's cost_budget:
+    # fast_wall_ms 2000, deep_wall_ms 120000, max_resource_units 50M, max_peak_rss_bytes 1 GiB.
+    budget = accept_all_policy()
+
+    def over(field, value):
+        return build_report(budget, document, lambda r: entry(
+            r, "OBL-0008")["evidence"]["cost"].update({field: value}))
+
+    scenario("resource_units over max_resource_units", budget, over("resource_units", 50_000_001),
+             document, "rejected", ["BLOCK-COST-BUDGET"], obligation="OBL-0008")
+    scenario("peak_rss_bytes over max_peak_rss_bytes", budget, over("peak_rss_bytes", 1_073_741_825),
+             document, "rejected", ["BLOCK-COST-BUDGET"], obligation="OBL-0008")
+    scenario("wall_ms over deep_wall_ms", budget, over("wall_ms", 120_001),
+             document, "rejected", ["BLOCK-COST-BUDGET"], obligation="OBL-0008")
+    scenario("wall_ms between fast and deep is slow, not a violation (fast_wall_ms is a target)",
+             budget, over("wall_ms", 5_000), document, "accepted")
+    scenario("a capped metric the report does not record is refused (fail closed)", budget,
+             build_report(budget, document, lambda r: entry(r, "OBL-0008")["evidence"].pop("cost")),
+             document, "rejected", ["BLOCK-COST-BUDGET"], obligation="OBL-0008")
+    d = decide(budget, over("resource_units", 50_000_001), document)
+    check("resource_units" in d["violations"][0]["message"]
+          and "max_resource_units" in d["violations"][0]["message"],
+          "the violation names the metric and the ceiling", f"    {d}")
+    no_budget = accept_all_policy()
+    no_budget.pop("cost_budget")
+    scenario("no cost_budget in the policy: no cost check at all", no_budget,
+             build_report(no_budget, document, lambda r: entry(r, "OBL-0008")["evidence"]["cost"].update(
+                 {"resource_units": 10**12, "wall_ms": 10**9, "peak_rss_bytes": 10**18})),
+             document, "accepted")
+
     heading("Empirical evidence: the lattice below machine-checked-model is live")
 
     def violations_of(decision):
