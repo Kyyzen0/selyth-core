@@ -11,11 +11,20 @@ on:
   pull_request:
   workflow_dispatch:   # manual retrigger, e.g. when runner-side PR checkouts fail
 
+# One run per ref at a time: a superseded push cancels the queued/running one,
+# so the runner never burns time on stale commits.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test-python:
-    # ubuntu-24.04, not latest: latest is 26.04, which no longer ships Python 3.9
-    # (the oldest interpreter the project supports).
-    runs-on: ubuntu-24.04
+    # Self-hosted runner (label `selyth`): GitHub-hosted runners are refused while the
+    # private-repo Actions quota is exhausted, and a self-hosted runner consumes no
+    # GitHub-hosted minutes. Switch back to `ubuntu-24.04` (not `latest`: 26.04 no longer
+    # ships Python 3.9, the oldest interpreter the project supports) when hosted minutes
+    # are available again. Setup: docs/operations/self-hosted-runner.md
+    runs-on: [self-hosted, linux, x64, selyth]
     strategy:
       fail-fast: false
       matrix:
@@ -29,7 +38,7 @@ jobs:
         run: make test-python
 
   test-ts:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, selyth]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -44,7 +53,7 @@ jobs:
         run: make test-properties
 
   test-dafny:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, selyth]
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
