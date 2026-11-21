@@ -10,6 +10,7 @@ The subset (anything else is refused with a located error, never guessed):
   * statements: `let|const x = e;`, `x = e;`, `x += e;`, `x -= e;`, `x++;`, `return e;`,
     `return [e, e];`, `if (e) s [else s]` (chains of `else if` included), `while (e) { ... }`,
     `while (true) { ...; if (e) break; ... }`,
+    `do { ... } while (e);` (a post-test loop, emitted as `while true { ...; if !e { break } }`),
     `for (let i = K; i < e; i++) { ... }` (K a non-negative literal, `<` or `<=`, only `i++` as the
     update — desugared to a `while` with an explicit counter),
     `switch (e) { case K: s...; case L: s...; [default: s...] }` with integer-literal labels only,
@@ -293,6 +294,17 @@ class Parser:
             cond = self.expr()
             self.eat(")")
             return ("while", cond, self.block(hooks))
+        if tok == "do":
+            # do { ... } while (c); — a post-test loop, emitted as while true { body; if !c { break } }
+            # so the existing loop machinery (one loop per function, invariant, marker) applies.
+            self.next()
+            body = self.block(hooks)
+            self.eat("while")
+            self.eat("(")
+            cond = self.expr()
+            self.eat(")")
+            self.eat(";")
+            return ("dowhile", cond, body)
         if tok == "for":
             # A counted loop is the one `for` the subset accepts, desugared at parse time into
             # `var i := K; while i < e { ...; i := i + 1; }` so the existing loop machinery
@@ -584,7 +596,7 @@ class Context:
                 elif s[0] == "if":
                     walk(s[2])
                     walk(s[3] or [])
-                elif s[0] in ("while",):
+                elif s[0] in ("while", "dowhile"):
                     walk(s[2])
                 elif s[0] == "block":
                     walk(s[1])
@@ -805,7 +817,7 @@ def translate_function(fn, spec, indent="  "):
                     lines.append(f"{pad}}} else {{")
                     lines += stmts(s[3], depth + 1)
                 lines.append(f"{pad}}}")
-            elif kind == "while":
+            elif kind in ("while", "dowhile"):
                 lines += loop(s, depth)
             elif kind == "block":
                 lines += stmts(s[1], depth)
@@ -819,13 +831,15 @@ def translate_function(fn, spec, indent="  "):
             raise TranslationError(f"{fn['name']}: one loop per function is the limit of this translator")
         loop_used[0] = True
         cond, body = s[1], s[2]
-        if cond == ("bool", True):                         # while (true) { ...; if (c) break; rest }
+        post_test = s[0] == "dowhile"                      # do { B } while (c); — post-test: B runs first
+        if not post_test and cond == ("bool", True):       # while (true) { ...; if (c) break; rest }
             at = next((k for k, b in enumerate(body) if b[0] == "if" and b[2] == [("break",)] and b[3] is None), None)
             if at is None or at != 0:
                 raise TranslationError(f"{fn['name']}: `while (true)` must begin with `if (e) break;`")
-            exit_cond = body[0][1]
-            head = ctx.emit(ctx.negate(exit_cond))
+            head = ctx.emit(ctx.negate(body[0][1]))
             body = body[1:]
+        elif post_test:
+            head = "true"
         else:
             head = ctx.emit(cond)
         spec_loop = spec.get("loop") or {}
@@ -833,12 +847,20 @@ def translate_function(fn, spec, indent="  "):
         if not invariant:
             raise TranslationError(f"{fn['name']}: a loop needs an invariant (a selyth:invariant comment or "
                                    f"the sidecar)")
+        decreases = spec_loop.get("decreases")
+        if post_test and not decreases:
+            raise TranslationError(f"{fn['name']}: a do-while needs an explicit `decreases` in the sidecar "
+                                   f"(loop.decreases): Dafny cannot infer one for `while true`")
         lines = [f"{pad}while {head}", f"{pad}{indent}invariant {invariant}"]
+        if decreases:
+            lines.append(f"{pad}{indent}decreases {decreases}")
         loop_ids = fn.get("resolved_loop_obligations") or spec_loop.get("obligations")
         if loop_ids:
             lines.append(f"{pad}{indent}// selyth:obligation {' '.join(loop_ids)}")
         lines.append(f"{pad}{{")
         lines += stmts(body, depth + 1)
+        if post_test:
+            lines.append(f"{pad}{indent}if {ctx.emit(ctx.negate(cond))} {{ break; }}")
         lines.append(f"{pad}}}")
         return lines
 
@@ -868,7 +890,7 @@ def _uses_helper_in_stmts(stmts, kinds):
         if s[0] == "if" and (_uses_helper_in_expr(s[1], kinds) or _uses_helper_in_stmts(s[2], kinds)
                              or _uses_helper_in_stmts(s[3] or [], kinds)):
             return True
-        if s[0] == "while" and (_uses_helper_in_expr(s[1], kinds) or _uses_helper_in_stmts(s[2], kinds)):
+        if s[0] in ("while", "dowhile") and (_uses_helper_in_expr(s[1], kinds) or _uses_helper_in_stmts(s[2], kinds)):
             return True
         if s[0] == "block" and _uses_helper_in_stmts(s[1], kinds):
             return True
@@ -893,7 +915,7 @@ def _uses_minmax_name(stmts, helper):
         if s[0] == "if" and (in_expr(s[1]) or _uses_minmax_name(s[2], helper)
                              or _uses_minmax_name(s[3] or [], helper)):
             return True
-        if s[0] == "while" and (in_expr(s[1]) or _uses_minmax_name(s[2], helper)):
+        if s[0] in ("while", "dowhile") and (in_expr(s[1]) or _uses_minmax_name(s[2], helper)):
             return True
         if s[0] == "block" and _uses_minmax_name(s[1], helper):
             return True
@@ -1066,7 +1088,7 @@ def strip_obligation_ids(ts_source, ids):
 
 def _has_loop(stmts):
     for s in stmts:
-        if s[0] == "while":
+        if s[0] in ("while", "dowhile"):
             return True
         for part in s[1:]:
             if isinstance(part, list) and _has_loop(part):
