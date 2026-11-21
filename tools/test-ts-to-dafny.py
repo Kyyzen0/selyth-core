@@ -173,6 +173,18 @@ def check_constructs():
     out = translated("export function f(n: number): number { let t = 0; for (let i = 0; i <= n; i++) { t += 1; } return t; }",
                      fspec)
     check("while i <= n" in out, "`i <= e` is accepted as the for-loop condition", out)
+    out = translated("export function f(a: number, b: number): number { return Math.min(a, b); }", spec)
+    check("function Min(x: int, y: int): int" in out and "result := Min(a, b);" in out,
+          "Math.min becomes the prepended Min helper on int", out)
+    out = translated("export function f(a: number, b: number): number { return Math.max(a, b) - Math.min(a, b); }", spec)
+    check("function Max" in out and "function Min" in out and "result := Max(a, b) - Min(a, b);" in out,
+          "Math.max/Math.min map to Max/Min", out)
+    out = translated("export function f(a: number, b: number): number { return Math.max(Math.min(a, b), 0) + Math.min(a, 5); }", spec)
+    check(out.count("function Min") == 1 and out.count("function Max") == 1
+          and "result := Max(Min(a, b), 0) + Min(a, 5);" in out,
+          "nested min/max: each helper is prepended once", out)
+    out = translated("export function f(a: number, b: number): number { let m = Math.min(a, b); return Math.floor(m / 2); }", spec)
+    check("result := m / 2;" in out, "Min(a, b) counts as provably non-negative for a following division", out)
 
 
 def check_refusals():
@@ -194,7 +206,8 @@ def check_refusals():
         "an unknown name": "export function f(a: number, b: number): number { return c; }",
         "a call": "export function f(a: number, b: number): number { return g(a); }",
         "a ternary without else": "export function f(a: number, b: number): number { return a ? 1; }",
-        "Math.min": "export function f(a: number, b: number): number { return Math.min(a, b); }",
+        "Math.min with one argument": "export function f(a: number, b: number): number { return Math.min(a); }",
+        "Math.min with three arguments": "export function f(a: number, b: number): number { return Math.min(a, b, 0); }",
         "a for loop without a counter declaration": "export function f(n: number): number { for (i = 0; i < n; i++) {} return 0; }",
         "a for loop with a decrementing counter": "export function f(n: number): number { for (let i = 0; i < n; i--) {} return 0; }",
         "a for loop with a non-literal initialiser": "export function f(n: number): number { for (let i = n; i < 10; i++) {} return 0; }",
@@ -262,21 +275,26 @@ def ts_eval(src, env):
     """TypeScript semantics for the non-negative integer fragment, by a separate route: the source
     text rewritten to Python, whose operators agree with JavaScript's here."""
     text = floor_to_python(src)
+    text = text.replace("Math.min(", "min(").replace("Math.max(", "max(")
     text = text.replace("===", "==").replace("!==", "!=").replace("&&", " and ").replace("||", " or ")
     text = re.sub(r"!(?!=)", " not ", text)
-    return eval(text, {"__builtins__": {}}, dict(env))
+    return eval(text, {"__builtins__": {}, "min": min, "max": max}, dict(env))
 
 
 def dafny_eval(src, env):
     text = src.replace("&&", " and ").replace("||", " or ")
     text = re.sub(r"!(?!=)", " not ", text)
     text = re.sub(r"(?<![/])/(?![/])", "//", text)
-    return eval(text, {"__builtins__": {}}, dict(env))
+    return eval(text, {"__builtins__": {}, "Min": min, "Max": max}, dict(env))
 
 
 def random_arith(rng, depth, vars_):
     if depth == 0 or rng.random() < 0.25:
         return rng.choice(vars_ + [str(rng.randint(0, 9))])
+    if rng.random() < 0.15:
+        a, b = random_arith(rng, depth - 1, vars_), random_arith(rng, depth - 1, vars_)
+        m = rng.choice(["Math.min", "Math.max"])
+        return f"{m}(({a}), ({b}))"               # Min/Max are exact on integers
     op = rng.choice(["+", "*", "-", "%", "/", "+", "*"])
     a, b = random_arith(rng, depth - 1, vars_), random_arith(rng, depth - 1, vars_)
     if op == "/":
@@ -426,9 +444,12 @@ def _ternary_dafny_to_python(src):
 
 def random_construct(rng, vars_):
     e = random_arith(rng, 2, vars_)
-    kind = rng.choice(["plain", "abs", "abs", "ternary", "ternary", "nested"])
+    kind = rng.choice(["plain", "abs", "abs", "ternary", "ternary", "nested", "minmax", "minmax"])
     if kind == "abs":
         return f"Math.abs(({e}) - ({random_arith(rng, 2, vars_)}))"
+    if kind == "minmax":
+        m = rng.choice(["min", "max"])
+        return f"Math.{m}(({e}), ({random_arith(rng, 2, vars_)}))"
     if kind == "ternary":
         return f"({random_bool(rng, 2, vars_)}) ? ({e}) : ({random_arith(rng, 2, vars_)})"
     if kind == "nested":
@@ -456,13 +477,15 @@ def check_construct_differential():
         text = re.search(r"result := (.*);", out).group(1)
         for a, b in [(0, 0), (1, 2), (7, 3), (12, 5), (0, 9), (31, 4)]:
             tried += 1
-            ts_text = _ternary_ts_to_python(floor_to_python(e).replace("Math.abs(", "abs("))
+            ts_text = _ternary_ts_to_python(floor_to_python(e).replace("Math.abs(", "abs(")
+                                            .replace("Math.min(", "min(").replace("Math.max(", "max("))
             ts_text = ts_text.replace("===", "==").replace("!==", "!=").replace("&&", " and ").replace("||", " or ")
             ts_text = re.sub(r"!(?!=)", " not ", ts_text)
-            dafny_text = text.replace("Abs(", "abs(").replace("&&", " and ").replace("||", " or ")
+            dafny_text = text.replace("Abs(", "abs(").replace("Min(", "min(").replace("Max(", "max(")
+            dafny_text = dafny_text.replace("&&", " and ").replace("||", " or ")
             dafny_text = re.sub(r"!(?!=)", " not ", dafny_text)
             dafny_text = re.sub(r"(?<![/])/(?![/])", "//", _ternary_dafny_to_python(dafny_text))
-            env = {"a": a, "b": b, "abs": abs}
+            env = {"a": a, "b": b, "abs": abs, "min": min, "max": max}
             if eval(ts_text, {"__builtins__": {}}, env) != eval(dafny_text, {"__builtins__": {}}, dict(env)):
                 wrong.append((e, text, a, b))
                 break

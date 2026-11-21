@@ -235,7 +235,7 @@ def check_translated_bugs(dafny, solver, version):
         t2d.translate(ts.replace("return balance - amount;", "return Math.sqrt(balance - amount);", 1), translation)
         refused = False
     except t2d.TranslationError as exc:
-        refused = "only Math.floor and Math.abs are in the subset" in str(exc)
+        refused = "only Math.floor, Math.abs, Math.min and Math.max are in the subset" in str(exc)
     check(refused, "a change the translator cannot read (Math.sqrt) is refused, not approximated")
 
 

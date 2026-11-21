@@ -16,11 +16,12 @@
 | `for (let i = K; i < e; i++) { ... }` | `var i := K; while i < e { ...; i := i + 1; }` (K a non-negative literal; `<` or `<=`; only `i++` as the update) |
 | `Math.floor(a / b)`, `%` | `a / b`, `a % b`, only on provably non-negative operands |
 | `Math.abs(e)` | `Abs(e)`, a prepended `function Abs(x: int): int` helper (exact, since `nat` is a subtype of `int`) |
+| `Math.min(a, b)`, `Math.max(a, b)` | `Min(a, b)` / `Max(a, b)`, prepended `function Min/Max(x: int, y: int): int` helpers (exact on integers; exactly two arguments) |
 | `c ? a : b` | `if c then a else b` (nested ternaries in the branches are parenthesised) |
 | `===`, `!==`, `&&`, `\|\|`, `!`, comparisons | `==`, `!=`, `&&`, `\|\|`, `!`, comparisons |
 | a trailing optional function parameter and its calls | dropped (a test hook has no counterpart in the proof); the arguments must be side-effect-free expressions, otherwise refused |
 
-Anything else is refused with the reason: strings, classes, calls, `switch`, non-integer literals, `==`, a bare `/`, other `Math` functions, a second loop in a function, a malformed `for`, a name that is not declared.
+Anything else is refused with the reason: strings, classes, calls, `switch`, non-integer literals, `==`, a bare `/`, other `Math` functions (or `Math.min`/`max` with not exactly two arguments), a second loop in a function, a malformed `for`, a name that is not declared.
 
 ## What the code cannot say
 
