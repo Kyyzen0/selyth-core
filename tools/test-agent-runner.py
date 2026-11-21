@@ -79,15 +79,15 @@ def write_fake_agent(path, n_calls, sleep=0):
     return f"{sys.executable} {path}"
 
 
-def synthetic_record(rid, group, violates, accepted, agent_run=None):
+def synthetic_record(rid, group, violates, accepted, agent_runs=None):
     rec = {"id": rid, "group": group, "description": rid, "label_violates": violates,
            "oracle": {"violated": violates, "violates": violates}, "label_confirmed": True,
            "translation": {"ok": True}, "wall_seconds": 1.0}
     for arm in ev.ARMS:
         rec[arm] = {"accepted": accepted, "why": "dafny" if accepted else "BLOCK", "seconds": 1.0}
     rec["B"]["resource_units"] = 10
-    if agent_run:
-        rec["agent_run"] = agent_run
+    if agent_runs:
+        rec["agent_runs"] = agent_runs
     return rec
 
 
@@ -157,20 +157,31 @@ def main():
         heading("evaluate.py merges the run records: summarize() and render() report the calls")
         runs_dir = tmp / "runs"
         runs_dir.mkdir()
-        (runs_dir / "t1.json").write_text(json.dumps({"task_id": "t1", "run_id": rec["run_id"],
-                                                       "model_calls": 3, "refused_calls": 2,
-                                                       "wall_seconds": rec["wall_seconds"],
-                                                       "timed_out": False, "measured": True}))
+        (runs_dir / "t1-a.json").write_text(json.dumps({"task_id": "t1", "arm": "A1", "run_id": rec["run_id"],
+                                                         "model_calls": 3, "refused_calls": 2,
+                                                         "wall_seconds": rec["wall_seconds"],
+                                                         "timed_out": False, "measured": True}))
+        (runs_dir / "t1-b.json").write_text(json.dumps({"task_id": "t1", "arm": "B", "run_id": "run-b1",
+                                                         "model_calls": 5, "refused_calls": 0,
+                                                         "wall_seconds": 9.0,
+                                                         "timed_out": False, "measured": True}))
         runs = ev.load_agent_runs(runs_dir)
-        check(set(runs) == {"t1"} and runs["t1"]["model_calls"] == 3, "load_agent_runs keys records by task_id")
+        check(set(runs) == {"t1"} and len(runs["t1"]) == 2
+              and {r["arm"] for r in runs["t1"]} == {"A1", "B"},
+              "load_agent_runs groups records by task_id as a list: both arms of one task are kept")
         records = [synthetic_record("t1", "ordinary", True, False,
-                                    agent_run={"run_id": rec["run_id"], "model_calls": 3, "refused_calls": 2,
-                                               "wall_seconds": 12.0, "timed_out": False, "measured": True}),
+                                    agent_runs=[{"run_id": rec["run_id"], "task_id": "t1", "arm": "A1",
+                                                 "model_calls": 3, "refused_calls": 2,
+                                                 "wall_seconds": 12.0, "timed_out": False, "measured": True},
+                                                {"run_id": "run-b1", "task_id": "t1", "arm": "B",
+                                                 "model_calls": 5, "refused_calls": 0,
+                                                 "wall_seconds": 9.0, "timed_out": False, "measured": True}]),
                    synthetic_record("ctl", "control", False, True)]
         summary = ev.summarize(records)
         mc = summary["model_calls"]
-        check(mc is not None and mc["total_calls"] == 3 and mc["over_budget"] == ["t1"]
-              and mc["unmeasured"] == [], "summarize: total calls, over-budget and unmeasured lists",
+        check(mc is not None and mc["total_calls"] == 8 and mc["over_budget"] == ["t1/A1"]
+              and mc["unmeasured"] == [] and len(mc["runs"]) == 2,
+              "summarize: total calls over both arms, over-budget and unmeasured lists",
               f"    {mc}")
         out = ev.render(records, summary)
         check("Model calls" in out and "15-call budget" in out, "render prints the model-call line")

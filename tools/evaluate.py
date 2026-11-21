@@ -255,14 +255,14 @@ def summarize(records, cpu_seconds_total=0.0):
     null = next((r for r in records if r["group"] == "control"), None)
     out["null_agent"] = None if null is None else {
         "violates": null["oracle"]["violates"], "accepted_by": [a for a in ARMS if null[a]["accepted"]]}
-    runs = [r for r in records if r.get("agent_run")]
+    runs = [(r["id"], run) for r in records for run in r.get("agent_runs", [])]
     out["model_calls"] = None if not runs else {
-        "runs": [{"id": r["id"], "calls": r["agent_run"]["model_calls"],
-                  "refused": r["agent_run"]["refused_calls"], "wall_seconds": r["agent_run"]["wall_seconds"],
-                  "timed_out": r["agent_run"]["timed_out"]} for r in runs],
-        "total_calls": sum(r["agent_run"]["model_calls"] for r in runs),
-        "over_budget": [r["id"] for r in runs if r["agent_run"]["refused_calls"]],
-        "unmeasured": [r["id"] for r in runs if not r["agent_run"]["measured"]],
+        "runs": [{"id": tid, "arm": run["arm"], "run_id": run["run_id"], "calls": run["model_calls"],
+                  "refused": run["refused_calls"], "wall_seconds": run["wall_seconds"],
+                  "timed_out": run["timed_out"]} for tid, run in runs],
+        "total_calls": sum(run["model_calls"] for _, run in runs),
+        "over_budget": [f"{tid}/{run['arm']}" for tid, run in runs if run["refused_calls"]],
+        "unmeasured": [f"{tid}/{run['arm']}" for tid, run in runs if not run["measured"]],
     }
     out["not_measured_here"] = ["human intervention (review-minutes per accepted change)",
                                 "maintenance overhead (obligations added or deleted per accepted change)",
@@ -306,8 +306,10 @@ def render(records, summary):
 
 
 def load_agent_runs(runs_dir):
-    """agent_runner.py run records, keyed by task_id (records without a task_id are skipped:
-    the launch gate checks them separately via `agent_runner.py check-launch`)."""
+    """agent_runner.py run records, grouped by task_id as a LIST: one task has one run per arm
+    (ADR-004: 2 arms per task), and keying by task_id alone would silently keep only the last
+    arm. Records without a task_id are skipped: the launch gate checks them separately via
+    `agent_runner.py check-launch`."""
     runs = {}
     if not runs_dir:
         return runs
@@ -317,7 +319,7 @@ def load_agent_runs(runs_dir):
         except ValueError:
             continue
         if rec.get("task_id"):
-            runs[rec["task_id"]] = rec
+            runs.setdefault(rec["task_id"], []).append(rec)
     return runs
 
 
@@ -335,10 +337,11 @@ def run(tasks_path, jobs, runs_dir=None):
     else:
         records = [run_submission(t, base, tools) for t in corpus["tasks"]]
     for r in records:
-        rec = agent_runs.get(r["id"])
-        if rec:
-            r["agent_run"] = {k: rec.get(k) for k in
-                              ("run_id", "model_calls", "refused_calls", "wall_seconds", "timed_out", "measured")}
+        recs = agent_runs.get(r["id"], [])
+        if recs:
+            r["agent_runs"] = [{k: rec.get(k) for k in
+                                ("run_id", "task_id", "arm", "model_calls", "refused_calls",
+                                 "wall_seconds", "timed_out", "measured")} for rec in recs]
     return {"corpus_id": corpus["corpus_id"], "dafny": version, "records": records,
             "summary": summarize(records, cpu_seconds() - cpu_before)}
 
