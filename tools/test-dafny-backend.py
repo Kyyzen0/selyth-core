@@ -450,6 +450,13 @@ def check_constructs(dafny, solver, version):
         "}\n"
         "export function cap(x: number, hi: number): number {\n"
         "  return Math.min(x, hi);\n"
+        "}\n"
+        "export function grade(x: number): number {\n"
+        "  switch (x) {\n"
+        "    case 0: return 0;\n"
+        "    case 1: return 10;\n"
+        "    default: return 100;\n"
+        "  }\n"
         "}\n")
     spec = {"header": "// synthetic test of the widened subset",
             "functions": {
@@ -462,13 +469,16 @@ def check_constructs(dafny, solver, version):
                 "clamp": {"dafny_name": "Clamp", "nat": ["lo", "hi"], "returns": [["result", "int"]],
                           "obligations": ["C-2"]},
                 "cap": {"dafny_name": "Cap", "nat": ["hi"], "returns": [["result", "int"]],
-                        "obligations": ["C-3"]}}}
+                        "obligations": ["C-3"]},
+                "grade": {"dafny_name": "Grade", "nat": ["x"], "returns": [["result", "nat"]],
+                          "obligations": ["S-1", "S-2"]}}}
     workspace = t2d.translate(ts_source, spec)
     check("function Abs(x: int): int" in workspace and "while i < n" in workspace
           and "if a > b then Abs(a) else Abs(b - a)" in workspace
           and "function Min(x: int, y: int): int" in workspace and "function Max(x: int, y: int): int" in workspace
-          and "result := Max(lo, Min(x, hi));" in workspace and "result := Min(x, hi);" in workspace,
-          "(setup) the translation emits the Abs/Min/Max helpers, the desugared while, the if-expression",
+          and "result := Max(lo, Min(x, hi));" in workspace and "result := Min(x, hi);" in workspace
+          and "if x == 0 {" in workspace and "if x == 1 {" in workspace,
+          "(setup) the translation emits the Abs/Min/Max helpers, the desugared while, the if-expression, the switch chain",
           workspace)
     document = {
         "selyth_obligation_set_version": "0.1.0", "set_id": "constructs", "specification_version": "1.0.0",
@@ -489,6 +499,12 @@ def check_constructs(dafny, solver, version):
             {"obligation_id": "C-3", "kind": "postcondition",
              "statement": "ensures result <= hi",
              "required_evidence_kind": "kernel-proven", "assumptions": [], "affected_components": ["t.ts"]},
+            {"obligation_id": "S-1", "kind": "postcondition",
+             "statement": "ensures x == 0 ==> result == 0",
+             "required_evidence_kind": "kernel-proven", "assumptions": [], "affected_components": ["t.ts"]},
+            {"obligation_id": "S-2", "kind": "postcondition",
+             "statement": "ensures x == 1 ==> result == 10",
+             "required_evidence_kind": "kernel-proven", "assumptions": [], "affected_components": ["t.ts"]},
         ]}
     ir = adapter.lower(document, version)
     report = backend.build_report(ir, document, POLICY, workspace.encode("utf-8"), "constructs.dfy",
@@ -496,8 +512,8 @@ def check_constructs(dafny, solver, version):
     check(valid(report), "the report is valid for report-schema.json",
           "    " + "; ".join(f"{p.path} {p.message}" for p in validate.validate(report, REPORT_SCHEMA)))
     check(outcomes(report) == {"T-1": "proven", "T-2": "proven", "T-3": "proven", "C-1": "proven",
-                               "C-2": "proven", "C-3": "proven"},
-          "all six obligations of the widened subset (incl. Math.min/max) are proven by real Dafny",
+                               "C-2": "proven", "C-3": "proven", "S-1": "proven", "S-2": "proven"},
+          "all eight obligations of the widened subset (incl. Math.min/max and switch) are proven by real Dafny",
           f"    {outcomes(report)}")
     check(report["decision"]["result"] == "accepted", "and the run is accepted",
           f"    {report['decision']['violations']}")

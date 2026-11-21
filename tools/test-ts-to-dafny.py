@@ -493,11 +493,40 @@ def check_construct_differential():
                      f"{tried} evaluations, {refusals} conservative refusals)", str(wrong[:3]))
 
 
+def check_switch():
+    heading("Widened subset: switch on integer literals, desugared to if/else chains")
+    spec = {"functions": {"f": {"dafny_name": "F", "nat": ["a", "b"], "returns": [["result", "int"]]}}}
+    out = translated("export function f(a: number, b: number): number { switch (a) { case 0: return 10; case -1: result = 5; break; default: return 30; } }", spec)
+    check("if a == 0 {" in out and "if a == -1 {" in out and "} else {" in out and "result := 30;" in out,
+          "switch desugars to a nested if/else chain on `===` labels (negative label, break dropped)", out)
+    out = translated("export function f(a: number, b: number): number { let r = 0; switch (a + b) { case 2: r = 1; break; } return r; }", spec)
+    check("if a + b == 2 {" in out and "r := 1;" in out and "result := r;" in out,
+          "the subject may be an expression; a case ending in break; falls out of the chain", out)
+    out = translated("export function f(a: number, b: number): number { switch (a) { case 1: return 7; } return 0; }", spec)
+    check("if a == 1 {" in out and "result := 0;" in out,
+          "a switch without default leaves the following statements in place", out)
+    out = translated("export function f(a: number, b: number): number { if (a < b) return 1; else if (a === b) return 2; else return 3; }", spec)
+    check(out.count("} else {") == 2 and "if a == b {" in out,
+          "an else-if chain nests as expected", out)
+    cases = {
+        "fallthrough": "export function f(a: number, b: number): number { switch (a) { case 0: result = 1; case 1: return 2; } }",
+        "duplicate label": "export function f(a: number, b: number): number { switch (a) { case 0: break; case 0: break; } }",
+        "non-literal label": "export function f(a: number, b: number): number { switch (a) { case a: break; } }",
+        "default not last": "export function f(a: number, b: number): number { switch (a) { default: break; case 0: break; } }",
+        "empty case": "export function f(a: number, b: number): number { switch (a) { case 0: } }",
+        "empty switch": "export function f(a: number, b: number): number { switch (a) {} return 0; }",
+        "case with a call in the label": "export function f(a: number, b: number): number { switch (a) { case g(1): break; } }",
+    }
+    for label, ts in cases.items():
+        check(refused(ts) is not None, f"switch: {label} is refused", ts)
+
+
 def main():
     check_ledger()
     check_shapes()
     check_loops()
     check_constructs()
+    check_switch()
     check_refusals()
     check_differential()
     check_construct_differential()
