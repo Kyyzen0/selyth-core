@@ -99,14 +99,9 @@ pub fn steps_for(makefile_text: &str, suites: &[String], root: &Path, python: &s
                     needs_node,
                 });
             } else {
-                let label = line
-                    .split_whitespace()
-                    .take(3)
-                    .collect::<Vec<_>>()
-                    .join(" ");
                 steps.push(Step {
                     suite: short.to_string(),
-                    name: format!("{target}: {label}"),
+                    name: format!("{target}: {line}"),
                     argv: vec!["sh".to_string(), "-c".to_string(), line.to_string()],
                     needs_dafny,
                     needs_node,
