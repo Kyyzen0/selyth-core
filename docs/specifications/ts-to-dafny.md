@@ -16,6 +16,10 @@
 | `for (let i = K; i < e; i++) { ... }` | `var i := K; while i < e { ...; i := i + 1; }` (K a non-negative literal; `<` or `<=`; only `i++` as the update) |
 | `switch (e) { case K: ...; [default: ...] }` | a chain of `if e == K ... else ...` (integer-literal labels only, no duplicates, each case ends with `break;` or `return ...;` — no fallthrough — `default` last) |
 | `else if (e) s` | nested `else { if ... }` |
+| `const a: number[] = [e, ...];` | `var a: seq<int> := [e, ...];` (read-only arrays, emitted as `var` since Dafny has no local `const`; reassignment and element writes are refused at translation time) |
+| `a[i]` (read), `a.length` | `a[i]`, `|a|` — a literal index is bounds-checked at translation time, other indices are left for Dafny to prove |
+| `g(e, ...)` where `g` is a pure function of the module | a call to a Dafny `function` — a pure function is a single `return e;`, no loop, no hook, marked `"pure": true` in the sidecar |
+| `// selyth:lemma <Dafny lemma declaration>` | a lemma in the preamble, **proven** by Dafny (fail-closed); `assume`/`{:axiom}`/`{:extern}`/`expect` are refused in code |
 | `Math.floor(a / b)`, `%` | `a / b`, `a % b`, only on provably non-negative operands |
 | `Math.abs(e)` | `Abs(e)`, a prepended `function Abs(x: int): int` helper (exact, since `nat` is a subtype of `int`) |
 | `Math.min(a, b)`, `Math.max(a, b)` | `Min(a, b)` / `Max(a, b)`, prepended `function Min/Max(x: int, y: int): int` helpers (exact on integers; exactly two arguments) |
@@ -23,7 +27,7 @@
 | `===`, `!==`, `&&`, `\|\|`, `!`, comparisons | `==`, `!=`, `&&`, `\|\|`, `!`, comparisons |
 | a trailing optional function parameter and its calls | dropped (a test hook has no counterpart in the proof); the arguments must be side-effect-free expressions, otherwise refused |
 
-Anything else is refused with the reason: strings, classes, calls, non-integer literals, `==`, a bare `/`, other `Math` functions (or `Math.min`/`max` with not exactly two arguments), a malformed `switch` (non-literal or duplicate label, fallthrough, misplaced `default`, empty case), a second loop in a function, a malformed `for`, a name that is not declared.
+Anything else is refused with the reason: strings, classes, non-integer literals, `==`, a bare `/`, other `Math` functions (or `Math.min`/`max` with not exactly two arguments), a malformed `switch` (non-literal or duplicate label, fallthrough, misplaced `default`, empty case), array element assignment / array parameters / array reassignment / out-of-range literal index / indexing a non-array, calls to impure or unknown functions, a `selyth:lemma` that is malformed or contains a trust escape, a second loop in a function, a malformed `for`, a name that is not declared.
 
 ## What the code cannot say
 
