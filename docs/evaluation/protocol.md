@@ -101,6 +101,10 @@ What remains are concrete prerequisites before launch, not open choices:
 
 **How the results may be used.** They are reported task by task, with raw counts. No general conclusion about performance, significance or security is drawn from 12 runs.
 
+The exact operator commands for the official launch, each mapped to the ADR-004 requirement it
+enforces, are in [`launch-runbook.md`](launch-runbook.md); they are rehearsed end to end without any
+real model by [`tools/m6_dry_run.py`](../../tools/m6_dry_run.py).
+
 ## Stopping conditions (unchanged, restated; not applicable to M6-Lite)
 
 **These conditions belong to the full evaluation, not to M6-Lite.** A pilot of 12 runs, one per arm and task, cannot supply the data they need, and an ordinary M6-Lite outcome (no observed difference, a false rejection above 10% on six tasks) must not remove the intent layer, narrow the claims or stop the project. ADR-004 section 6 says the same. They stay as written for the full evaluation.

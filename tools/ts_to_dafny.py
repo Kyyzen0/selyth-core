@@ -29,6 +29,13 @@ The subset (anything else is refused with a located error, never guessed):
     method as a caller that proves preconditions, in place of the sidecar `callers`; each
     comment is one full `method ...` declaration, verified like everything else (fail-closed),
     trust escapes refused;
+  * `// selyth:obligation <ID ...>` inside a function: the `// selyth:obligation` marker of the
+    contract, or of the (single) loop when the comment sits inside the loop body — in place of
+    the sidecar `obligations` / `loop.obligations`;
+  * `// selyth:hint <Dafny statement>` inside a function: emitted at the top of the method body,
+    in place of the sidecar `body_prefix`;
+  * `// selyth:preamble <Dafny text>` at the top level: prepended to the workspace preamble, in
+    place of the sidecar `preamble` (consecutive lines join into one block);
   * expressions: integer literals, identifiers, `+ - * % / === !== < <= > >= && || !`, unary `-`,
     parentheses, `c ? a : b`, `Math.floor(a / b)` as the only division, `Math.abs(e)` (emitted as
     an `Abs` helper on `int`; exact because `nat` is a subtype of `int`), and `Math.min(a, b)` /
@@ -52,11 +59,13 @@ What cannot be read from the code comes from a sidecar specification, a JSON doc
                            "body_prefix": "<Dafny proof hint>", "loop": {"invariant": "...",
                            "obligations": [...]}, "callers": "<Dafny text>"}}}
 
-`nat` lists the parameters that are non-negative, `returns` names and types the results,
-`obligations` become the `// selyth:obligation` marker, and `body_prefix`, `preamble`
-are hand-written scaffolding that the translator copies. The loop invariant and the callers may
-instead live in the code as `// selyth:invariant` / `// selyth:caller` comments (one source only:
-giving both differently is refused). The translation itself is the method signature and body.
+`nat` lists the parameters that are non-negative, `returns` names and types the results, and
+`dafny_name` / `heading` name the emitted declaration. The whole proof contract may live in the
+code as `// selyth:` comments (lemma/preamble at the top level, obligation/invariant/hint inside a
+function, caller after a function); the same value may also sit in the sidecar (`obligations`,
+`loop`, `body_prefix`, `preamble`, `callers`) — one source only, giving both differently is
+refused, and both sources produce the exact same workspace. The translation itself is the method
+signature and body.
 
 Usage: ts_to_dafny.py FILE.ts --spec SPEC.json [-o OUT.dfy]
 """
@@ -736,13 +745,13 @@ def translate_function(fn, spec, indent="  "):
                        for p in fn["params"])
     returns = ", ".join(f"{n}: {t}" for n, t in spec["returns"])
     out.append(f"method {spec['dafny_name']}({params}) returns ({returns})")
-    if spec.get("obligations"):
-        out.append(f"{indent}// selyth:obligation {' '.join(spec['obligations'])}")
+    if fn.get("resolved_obligations"):
+        out.append(f"{indent}// selyth:obligation {' '.join(fn['resolved_obligations'])}")
     out.append("{")
     for p in ctx.reassigned_params:
         out.append(f"{indent}var {ctx.names[p]} := {ctx.names[p]};")
-    if spec.get("body_prefix"):
-        out.append(f"{indent}{spec['body_prefix']}")
+    for hint in fn.get("resolved_hints") or []:
+        out.append(f"{indent}{hint}")
     loop_used = [False]
 
     def stmts(body, depth, last_of_function=False):
@@ -825,8 +834,9 @@ def translate_function(fn, spec, indent="  "):
             raise TranslationError(f"{fn['name']}: a loop needs an invariant (a selyth:invariant comment or "
                                    f"the sidecar)")
         lines = [f"{pad}while {head}", f"{pad}{indent}invariant {invariant}"]
-        if spec_loop.get("obligations"):
-            lines.append(f"{pad}{indent}// selyth:obligation {' '.join(spec_loop['obligations'])}")
+        loop_ids = fn.get("resolved_loop_obligations") or spec_loop.get("obligations")
+        if loop_ids:
+            lines.append(f"{pad}{indent}// selyth:obligation {' '.join(loop_ids)}")
         lines.append(f"{pad}{{")
         lines += stmts(body, depth + 1)
         lines.append(f"{pad}}}")
@@ -918,46 +928,140 @@ def extract_lemmas(ts_source):
 
 
 _INVARIANT_RE = re.compile(r"//[ \t]*selyth:invariant[ \t]+(.*)")
-_CALLER_RE = re.compile(r"//[ \t]*selyth:caller[ \t]+(.*)")
+_CALLER_RE = re.compile(r"//[ \t]*selyth:caller(?:[ \t](.*))?")
+_OBLIGATION_RE = re.compile(r"//[ \t]*selyth:obligation[ \t]+(.*)")
+_HINT_RE = re.compile(r"//[ \t]*selyth:hint[ \t]+(.*)")
+_PREAMBLE_RE = re.compile(r"//[ \t]*selyth:preamble(?:[ \t](.*))?")
 _FN_RE = re.compile(r"^\s*export\s+function\s+([A-Za-z_$][A-Za-z0-9_$]*)")
+_LOOP_RE = re.compile(r"\b(?:while|for)\s*\(")
+_BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.S)
 
 
-def extract_contract_comments(ts_source):
-    """`// selyth:invariant <Dafny invariant>` and `// selyth:caller <Dafny method>` comments carry
-    the loop invariant and the callers in the code instead of the sidecar. One loop per function
-    makes the association unambiguous: an invariant comment belongs to the function being parsed,
-    a caller comment to the function just closed. Callers are emitted as methods and verified
-    like everything else (fail-closed); trust escapes are refused here as for lemmas."""
-    invariants, callers = {}, {}
-    current = None
-    for lineno, line in enumerate(ts_source.splitlines(), 1):
+def _empty_contract():
+    return {"invariant": None, "obligations": [], "loop_obligations": [], "hints": [], "callers": []}
+
+
+def extract_source_contracts(ts_source):
+    """The `// selyth:...` comments carry the proof contract in the code itself, so the sidecar
+    keeps only the naming and typing: `selyth:lemma` and `selyth:preamble` at the top level,
+    `selyth:obligation` / `selyth:invariant` / `selyth:hint` inside a function, `selyth:caller`
+    after a function. One loop per function makes the contract/loop classification of an
+    obligation comment unambiguous (brace depth). Everything emitted from a comment is verified
+    by Dafny like everything else (fail-closed); trust escapes are refused here, as the
+    workspace scan refuses them too."""
+    text = _BLOCK_COMMENT.sub(lambda m: "\n" * m.group(0).count("\n"), ts_source)  # keep line numbers
+    contracts, preambles = {}, []
+    current = last_fn = None
+    depth = 0
+    loop_body_depth, pending_loop = None, False
+    prev_was_caller = False
+    for lineno, line in enumerate(text.splitlines(), 1):
+        cur_was_caller = prev_was_caller
+        prev_was_caller = _CALLER_RE.search(line) is not None
+        code = line.split("//", 1)[0]
+        depth_before = depth
         fn = _FN_RE.match(line)
+        was_top = depth_before == 0 and fn is None
         if fn:
-            current = fn.group(1)
+            current = last_fn = fn.group(1)
+            contracts.setdefault(current, _empty_contract())
+            depth, loop_body_depth, pending_loop = 0, None, False
+        if current is not None and loop_body_depth is None and _LOOP_RE.search(code):
+            pending_loop = True
+        for ch in code:
+            if ch == "{":
+                depth += 1
+                if pending_loop:
+                    loop_body_depth, pending_loop = depth, False
+            elif ch == "}":
+                depth -= 1
+                if loop_body_depth is not None and depth < loop_body_depth:
+                    loop_body_depth = None
+        if depth == 0 and fn is None:
+            current = None
+        m = _PREAMBLE_RE.search(line)
+        if m:
+            if not was_top:
+                raise TranslationError(f"line {lineno}: a selyth:preamble comment must sit at the top level")
+            pre = (m.group(1) or "").rstrip()
+            if not pre.strip():
+                raise TranslationError(f"line {lineno}: a selyth:preamble comment holds Dafny text")
+            if any(w in pre for w in _TRUST_WORDS):
+                raise TranslationError(f"line {lineno}: trust escapes are refused in code (the workspace scan "
+                                       f"refuses them too)")
+            preambles.append(pre)
+            continue
         m = _INVARIANT_RE.search(line)
         if m:
             if current is None:
                 raise TranslationError(f"line {lineno}: a selyth:invariant comment must sit inside a function")
-            text = m.group(1).strip()
-            if not text:
+            inv = m.group(1).strip()
+            if not inv:
                 raise TranslationError(f"line {lineno}: a selyth:invariant comment holds a Dafny invariant expression")
-            if current in invariants:
+            if contracts[current]["invariant"] is not None:
                 raise TranslationError(f"line {lineno}: function {current} has two selyth:invariant comments "
                                        f"(one loop per function)")
-            invariants[current] = text
+            contracts[current]["invariant"] = inv
+            continue
+        m = _OBLIGATION_RE.search(line)
+        if m:
+            if current is None:
+                raise TranslationError(f"line {lineno}: a selyth:obligation comment must sit inside a function")
+            ids = m.group(1).split()
+            if not ids or any(not re.fullmatch(r"[A-Za-z0-9_-]+", i) for i in ids):
+                raise TranslationError(f"line {lineno}: a selyth:obligation comment holds obligation ids")
+            c = contracts[current]
+            if any(i in c["obligations"] + c["loop_obligations"] for i in ids):
+                raise TranslationError(f"line {lineno}: function {current} names an obligation id twice")
+            if loop_body_depth is not None and depth_before >= loop_body_depth:
+                c["loop_obligations"].extend(ids)
+            else:
+                c["obligations"].extend(ids)
+            continue
+        m = _HINT_RE.search(line)
+        if m:
+            if current is None:
+                raise TranslationError(f"line {lineno}: a selyth:hint comment must sit inside a function")
+            hint = m.group(1).strip()
+            if not hint:
+                raise TranslationError(f"line {lineno}: a selyth:hint comment holds a Dafny statement")
+            if any(w in hint for w in _TRUST_WORDS):
+                raise TranslationError(f"line {lineno}: trust escapes are refused in code (the workspace scan "
+                                       f"refuses them too)")
+            contracts[current]["hints"].append(hint)
             continue
         m = _CALLER_RE.search(line)
         if m:
-            if current is None:
+            if last_fn is None:
                 raise TranslationError(f"line {lineno}: a selyth:caller comment must follow a function")
-            text = m.group(1).strip()
-            if not text.startswith("method "):
+            caller = (m.group(1) or "").rstrip()
+            if not cur_was_caller and not caller.strip().startswith("method "):
                 raise TranslationError(f"line {lineno}: a selyth:caller comment holds a full Dafny method declaration")
-            if any(w in text for w in _TRUST_WORDS):
+            if any(w in caller for w in _TRUST_WORDS):
                 raise TranslationError(f"line {lineno}: trust escapes are refused in code (the workspace scan "
                                        f"refuses them too)")
-            callers.setdefault(current, []).append(text)
-    return invariants, callers
+            contracts[last_fn]["callers"].append(caller)
+    return contracts, preambles
+
+
+_OBLIGATION_COMMENT = re.compile(r"^(\s*)//[ \t]*selyth:obligation[ \t]+(.*)$")
+
+
+def strip_obligation_ids(ts_source, ids):
+    """Remove `ids` from the `// selyth:obligation` comments, dropping emptied comment lines. The
+    workspace is regenerated from the code, so an obligation deleted from the set must also lose
+    its marker there, keeping the workspace consistent with the set (a stale marker is refused by
+    the backend itself)."""
+    out = []
+    for line in ts_source.split("\n"):
+        m = _OBLIGATION_COMMENT.match(line)
+        if m:
+            kept = [i for i in m.group(2).split() if i not in ids]
+            if kept:
+                out.append(f"{m.group(1)}// selyth:obligation {' '.join(kept)}")
+            continue
+        out.append(line)
+    return "\n".join(out)
 
 
 def _has_loop(stmts):
@@ -977,9 +1081,10 @@ def _is_pure(fn, entry):
         return False
     if fn["hooks"]:
         raise TranslationError(f"{fn['name']}: a pure function cannot have a test hook")
-    if (entry.get("loop") or entry.get("obligations") or entry.get("callers")
-            or fn.get("resolved_invariant") or fn.get("resolved_callers")):
-        raise TranslationError(f"{fn['name']}: a pure function cannot carry a loop, obligations or callers")
+    if (entry.get("loop") or entry.get("obligations") or entry.get("callers") or entry.get("body_prefix")
+            or fn.get("resolved_invariant") or fn.get("resolved_callers")
+            or fn.get("resolved_obligations") or fn.get("resolved_loop_obligations") or fn.get("resolved_hints")):
+        raise TranslationError(f"{fn['name']}: a pure function cannot carry a loop, obligations, hints or callers")
     if fn["arity"] != 1 or len(fn["body"]) != 1 or fn["body"][0][0] != "return" or len(fn["body"][0][1]) != 1:
         raise TranslationError(f"{fn['name']}: a pure function is exactly one `return e;`")
     return True
@@ -998,7 +1103,7 @@ def translate(ts_source, spec):
     function its translated method — or Dafny function, for pure ones — and the hand-written
     callers, in the order the functions appear in the code."""
     lemmas = extract_lemmas(ts_source)
-    invariants, caller_comments = extract_contract_comments(ts_source)
+    contracts, preamble_lines = extract_source_contracts(ts_source)
     functions = Parser(tokenize(ts_source)).program()
     seen = {f["name"] for f in functions}
     declared = spec.get("functions", {})
@@ -1011,20 +1116,45 @@ def translate(ts_source, spec):
     for fn in functions:
         name = fn["name"]
         entry = declared[name]
-        inv = invariants.get(name)
+        src = contracts.get(name, _empty_contract())
+        side_loop = entry.get("loop") or {}
+        if (side_loop.get("invariant") or side_loop.get("obligations")) and not _has_loop(fn["body"]):
+            raise TranslationError(f"{name}: the sidecar declares a loop but the function has none")
+        inv = src["invariant"]
         if inv is not None and not _has_loop(fn["body"]):
             raise TranslationError(f"{name}: a selyth:invariant comment needs the function's loop")
-        side_inv = (entry.get("loop") or {}).get("invariant")
+        side_inv = side_loop.get("invariant")
         if inv is not None and side_inv and inv != side_inv:
             raise TranslationError(f"{name}: the invariant is given both in a selyth:invariant comment and in "
                                    f"the sidecar, differently")
         fn["resolved_invariant"] = inv or side_inv
-        cl = caller_comments.get(name)
-        side_cl = entry.get("callers")
+        c_ids, side_ids = src["obligations"], entry.get("obligations") or []
+        if c_ids and side_ids and c_ids != side_ids:
+            raise TranslationError(f"{name}: the contract obligations are given both in selyth:obligation "
+                                   f"comments and in the sidecar, differently")
+        fn["resolved_obligations"] = c_ids or side_ids
+        l_ids, side_l = src["loop_obligations"], side_loop.get("obligations") or []
+        if l_ids and not _has_loop(fn["body"]):
+            raise TranslationError(f"{name}: a loop obligation marker needs the function's loop")
+        if l_ids and side_l and l_ids != side_l:
+            raise TranslationError(f"{name}: the loop obligations are given both in selyth:obligation comments "
+                                   f"and in the sidecar, differently")
+        fn["resolved_loop_obligations"] = l_ids or side_l
+        hints, bp = src["hints"], entry.get("body_prefix")
+        if hints and bp and "\n".join(hints) != bp.strip():
+            raise TranslationError(f"{name}: the proof hints are given both in selyth:hint comments and in the "
+                                   f"sidecar body_prefix, differently")
+        fn["resolved_hints"] = hints or ([bp] if bp else [])
+        cl, side_cl = src["callers"], entry.get("callers")
         if cl and side_cl and "\n".join(cl) != side_cl.strip():
             raise TranslationError(f"{name}: callers are given both in selyth:caller comments and in the "
                                    f"sidecar, differently")
         fn["resolved_callers"] = "\n".join(cl) if cl else side_cl
+    side_preamble = spec.get("preamble")
+    if preamble_lines and side_preamble and "\n".join(preamble_lines) != side_preamble.strip():
+        raise TranslationError("the preamble is given both in selyth:preamble comments and in the sidecar, "
+                               "differently")
+    resolved_preamble = "\n".join(preamble_lines) if preamble_lines else side_preamble
     pure = {fn["name"]: declared[fn["name"]] for fn in functions if _is_pure(fn, declared[fn["name"]])}
     pure_calls = {name: entry["dafny_name"] for name, entry in pure.items()}
     pure_nat = {entry["dafny_name"] for entry in pure.values() if entry["returns"][0][1] == "nat"}
@@ -1044,7 +1174,7 @@ def translate(ts_source, spec):
     clash = {"Abs", "Min", "Max"} & set(all_dafny_names)
     if (uses_abs or uses_min or uses_max) and clash:
         raise TranslationError(f"a helper name is already used by a function: {sorted(clash)[0]}: rename one")
-    preamble = spec.get("preamble", "").rstrip("\n")
+    preamble = (resolved_preamble or "").rstrip("\n")
     for used, definition in ((uses_abs, ABS_DEF), (uses_min, MIN_DEF), (uses_max, MAX_DEF)):
         if used:
             preamble = f"{preamble}\n\n{definition}" if preamble else definition

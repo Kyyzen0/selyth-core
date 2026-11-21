@@ -635,6 +635,77 @@ def check_contract_comments():
     for label, (ts, sp) in cases.items():
         check(refused(ts, sp) is not None, f"contract comments: {label} is refused", ts)
 
+    heading("Widened subset: selyth:obligation / selyth:hint / selyth:preamble comments")
+    loop_src = ("export function sum(n: number): number {\n"
+                "  // selyth:obligation T-1\n"
+                "  let t = 0;\n"
+                "  for (let i = 0; i < n; i++) {\n"
+                "    // selyth:obligation T-2 T-3\n"
+                "    // selyth:invariant 0 <= i <= n\n"
+                "    // selyth:hint assert t >= 0;\n"
+                "    t += i;\n"
+                "  }\n"
+                "  return t;\n"
+                "}\n"
+                "// selyth:caller method UseSum() { var t := Sum(5); }\n"
+                "export function f(a: number): number {\n"
+                "  // selyth:obligation F-1\n"
+                "  return a;\n"
+                "}\n")
+    pre = "// selyth:preamble lemma Helper(x: nat) ensures x >= 0 {}\n"
+    spec_c = {"preamble": "lemma Helper(x: nat) ensures x >= 0 {}",
+              "functions": {"sum": {"dafny_name": "Sum", "nat": ["n"], "returns": [["t", "nat"]]},
+                            "f": {"dafny_name": "F", "nat": ["a"], "returns": [["result", "int"]]}}}
+    out_comment = translated(pre + loop_src, {"functions": spec_c["functions"]})
+    out_sidecar = translated(loop_src.replace("  // selyth:obligation T-1\n", "")
+                             .replace("    // selyth:obligation T-2 T-3\n", "")
+                             .replace("    // selyth:invariant 0 <= i <= n\n", "")
+                             .replace("    // selyth:hint assert t >= 0;\n", "")
+                             .replace("// selyth:caller method UseSum() { var t := Sum(5); }\n", ""),
+                             {"preamble": "lemma Helper(x: nat) ensures x >= 0 {}",
+                              "functions": {"sum": {"dafny_name": "Sum", "nat": ["n"], "returns": [["t", "nat"]],
+                                                   "obligations": ["T-1"], "body_prefix": "assert t >= 0;",
+                                                   "loop": {"invariant": "0 <= i <= n", "obligations": ["T-2", "T-3"]},
+                                                   "callers": "method UseSum() { var t := Sum(5); }"},
+                                          "f": {"dafny_name": "F", "nat": ["a"], "returns": [["result", "int"]],
+                                                "obligations": ["F-1"]}}})
+    check("// selyth:obligation T-1" in out_comment and "// selyth:obligation T-2 T-3" in out_comment
+          and "// selyth:obligation F-1" in out_comment and "invariant 0 <= i <= n" in out_comment
+          and "assert t >= 0;" in out_comment and "lemma Helper(x: nat) ensures x >= 0 {}" in out_comment
+          and "method UseSum() { var t := Sum(5); }" in out_comment,
+          "obligation markers (contract and loop), hint, preamble and caller all come from the comments",
+          out_comment)
+    check(out_comment == out_sidecar,
+          "comment-sourced contract produces the exact same workspace as the sidecar")
+    bad = {
+        "obligation before any function": ("// selyth:obligation X-1\nexport function f(a: number): number { return a; }",
+                                            {"functions": {"f": other}}),
+        "obligation id twice": ("export function f(a: number): number {\n// selyth:obligation F-1\n"
+                                "// selyth:obligation F-1\n return a; }",
+                                {"functions": {"f": other}}),
+        "obligation conflicting with sidecar": ("export function f(a: number): number {\n// selyth:obligation F-1\n return a; }",
+                                                 {"functions": {"f": {**other, "obligations": ["F-2"]}}}),
+        "loop obligation without a loop": ("export function f(a: number): number {\n// selyth:obligation F-1\n return a; }",
+                                            {"functions": {"f": {**other, "loop": {"invariant": "true", "obligations": ["F-9"]}}}}),
+        "hint before any function": ("// selyth:hint assert true;\nexport function f(a: number): number { return a; }",
+                                     {"functions": {"f": other}}),
+        "hint with assume": ("export function f(a: number): number {\n// selyth:hint assume true;\n return a; }",
+                             {"functions": {"f": other}}),
+        "hint conflicting with body_prefix": ("export function f(a: number): number {\n// selyth:hint assert true;\n return a; }",
+                                              {"functions": {"f": {**other, "body_prefix": "assert false;"}}}),
+        "preamble inside a function": ("export function f(a: number): number {\n// selyth:preamble lemma L() {}\n return a; }",
+                                       {"functions": {"f": other}}),
+        "preamble conflicting with sidecar": ("// selyth:preamble lemma L() {}\nexport function f(a: number): number { return a; }",
+                                               {"preamble": "lemma M() {}", "functions": {"f": other}}),
+        "obligation on a pure function": ("export function d(x: number): number {\n// selyth:obligation D-1\n return x + x; }\n"
+                                          "export function f(a: number): number { return d(a); }",
+                                          {"functions": {"d": {"dafny_name": "D", "nat": ["x"],
+                                                               "returns": [["result", "int"]], "pure": True},
+                                                         "f": other}}),
+    }
+    for label, (ts, sp) in bad.items():
+        check(refused(ts, sp) is not None, f"contract comments: {label} is refused", ts)
+
 
 def main():
     check_ledger()

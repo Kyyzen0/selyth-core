@@ -106,10 +106,12 @@ def apply_edits(environment, edits):
                 raise EvaluationError("removing an obligation that does not exist")
             env[target]["obligations"] = kept
             if target == "obligations":
-                # The workspace is regenerated from the translation sidecar below; an agent that
-                # deletes an obligation also drops its markers there, so the regenerated workspace
-                # stays consistent with the set (a stale marker is refused by the backend itself).
+                # The workspace is regenerated from the code and the translation sidecar below; an
+                # agent that deletes an obligation also drops its markers there, so the regenerated
+                # workspace stays consistent with the set (a stale marker is refused by the
+                # backend itself).
                 removed = set(edit["remove"])
+                env["ts"] = t2d.strip_obligation_ids(env["ts"], removed)
                 for fn in env["translation"].get("functions", {}).values():
                     if isinstance(fn.get("obligations"), list):
                         fn["obligations"] = [i for i in fn["obligations"] if i not in removed]
