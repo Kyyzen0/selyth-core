@@ -8,4 +8,4 @@ pub mod makefile;
 pub mod runner;
 
 pub use makefile::{steps_for, Step, SUITES};
-pub use runner::{detect_tools, exit_code, render, run_steps, Outcome, Status, Tools};
+pub use runner::{detect_tools, exit_code, render, render_json, run_steps, Outcome, Status, Tools};

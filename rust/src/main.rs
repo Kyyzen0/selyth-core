@@ -2,14 +2,14 @@
 //!
 //!   selyth-test list [--root DIR]
 //!   selyth-test run [SUITE...] [--root DIR] [--jobs N] [--only SUBSTR] [--strict]
-//!                   [--python PATH] [--dafny PATH] [--node PATH]
+//!                   [--format text|json] [--python PATH] [--dafny PATH] [--node PATH]
 //!
 //! Suites: python, dafny, eval, ts, all (default: all). Steps are discovered from the
 //! Makefile targets test-python / test-dafny / test-eval / test-ts / test-properties.
 //! A step whose tool is missing (Dafny, Node) is reported as skipped; --strict makes a
 //! skip fail the run. Exit code is 1 if any step failed.
 
-use selyth_test::{detect_tools, exit_code, makefile, render, run_steps, steps_for};
+use selyth_test::{detect_tools, exit_code, makefile, render, render_json, run_steps, steps_for};
 use std::path::{Path, PathBuf};
 use std::process::exit;
 
@@ -20,6 +20,7 @@ struct Args {
     jobs: usize,
     only: Option<String>,
     strict: bool,
+    format: String,
     python: Option<String>,
     dafny: Option<PathBuf>,
     node: Option<PathBuf>,
@@ -29,7 +30,7 @@ fn usage() -> ! {
     eprintln!(
         "usage: selyth-test list [--root DIR]\n\
          \x20      selyth-test run [SUITE...] [--root DIR] [--jobs N] [--only SUBSTR] [--strict]\n\
-         \x20                   [--python PATH] [--dafny PATH] [--node PATH]\n\
+         \x20                   [--format text|json] [--python PATH] [--dafny PATH] [--node PATH]\n\
          suites: python, dafny, eval, ts, all (default: all)"
     );
     exit(2);
@@ -48,6 +49,7 @@ fn parse_args() -> Args {
         jobs: 4,
         only: None,
         strict: false,
+        format: "text".to_string(),
         python: None,
         dafny: None,
         node: None,
@@ -70,6 +72,14 @@ fn parse_args() -> Args {
             }
             "--only" => parsed.only = Some(take_value("--only")),
             "--strict" => parsed.strict = true,
+            "--format" => {
+                let value = take_value("--format");
+                if value != "text" && value != "json" {
+                    eprintln!("--format expects text or json");
+                    usage();
+                }
+                parsed.format = value;
+            }
             "--python" => parsed.python = Some(take_value("--python")),
             "--dafny" => parsed.dafny = Some(PathBuf::from(take_value("--dafny"))),
             "--node" => parsed.node = Some(PathBuf::from(take_value("--node"))),
@@ -144,6 +154,9 @@ fn main() {
         tools.node.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "none".into()),
     );
     let outcomes = run_steps(&steps, args.jobs, args.strict, &tools, &args.root);
-    println!("{}", render(&outcomes));
+    match args.format.as_str() {
+        "json" => println!("{}", render_json(&outcomes)),
+        _ => println!("{}", render(&outcomes)),
+    }
     exit(exit_code(&outcomes, args.strict));
 }

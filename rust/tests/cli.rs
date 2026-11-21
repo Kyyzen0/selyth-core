@@ -68,6 +68,26 @@ fn run_skips_steps_whose_tool_is_missing_and_strict_fails_on_them() {
 }
 
 #[test]
+fn run_with_format_json_emits_a_machine_readable_report() {
+    let out = selyth_test()
+        .args(["run", "python", "--format", "json", "--root"])
+        .arg(fixture_root())
+        .args(["--python", "/bin/echo"])
+        .output()
+        .unwrap();
+    // the fixture's raw `exit 1` recipe line still fails
+    assert_eq!(out.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.starts_with('{') && stdout.trim_end().ends_with('}'), "{stdout}");
+    assert!(stdout.contains("\"passed\": 1"), "{stdout}");
+    assert!(stdout.contains("\"failed\": 1"), "{stdout}");
+    assert!(stdout.contains("\"status\": \"passed\""), "{stdout}");
+    assert!(stdout.contains("\"status\": \"failed\""), "{stdout}");
+    assert!(stdout.contains("\"name\": \"test-ok\""), "{stdout}");
+    assert!(stdout.contains("\"tail\":"), "failures keep their tail: {stdout}");
+}
+
+#[test]
 fn only_filters_steps_by_name() {
     let out = selyth_test()
         .args(["run", "python", "--only", "test-ok", "--root"])
