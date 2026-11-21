@@ -573,6 +573,69 @@ def check_arrays_calls_lemmas():
           is not None, "a pure entry on a looping function is refused")
 
 
+def check_contract_comments():
+    heading("Widened subset: selyth:invariant and selyth:caller comments carry the loop contract in the code")
+    fn = {"dafny_name": "Sum", "nat": ["n"], "returns": [["t", "nat"]]}
+    other = {"dafny_name": "F", "nat": ["a"], "returns": [["result", "int"]]}
+    src_comment = ("export function sum(n: number): number {\n"
+                   "  let t = 0;\n"
+                   "  for (let i = 0; i < n; i++) {\n"
+                   "    // selyth:invariant 0 <= i <= n\n"
+                   "    t += i;\n"
+                   "  }\n"
+                   "  return t;\n"
+                   "}\n"
+                   "// selyth:caller method UseSum() { var t := Sum(5); }\n"
+                   "export function f(a: number): number { return a; }\n")
+    spec_comment = {"functions": {"sum": {**fn, "loop": {"obligations": ["T-2"]}}, "f": other}}
+    out = translated(src_comment, spec_comment)
+    check("invariant 0 <= i <= n" in out and "method UseSum() { var t := Sum(5); }" in out
+          and "// selyth:obligation T-2" in out,
+          "a selyth:invariant comment becomes the invariant clause, a selyth:caller comment the caller method",
+          out)
+    src_sidecar = ("export function sum(n: number): number {\n"
+                   "  let t = 0;\n"
+                   "  for (let i = 0; i < n; i++) { t += i; }\n"
+                   "  return t;\n"
+                   "}\n"
+                   "export function f(a: number): number { return a; }\n")
+    spec_sidecar = {"functions": {"sum": {**fn, "loop": {"invariant": "0 <= i <= n", "obligations": ["T-2"]},
+                                          "callers": "method UseSum() { var t := Sum(5); }"}, "f": other}}
+    check(translated(src_comment, spec_comment) == translated(src_sidecar, spec_sidecar),
+          "comment-sourced invariant and callers produce the exact same workspace as the sidecar")
+    cases = {
+        "invariant without a loop": ("// selyth:invariant true\nexport function f(a: number): number { return a; }",
+                                      {"functions": {"f": other}}),
+        "two invariants in one function": ("export function g(a: number): number { let t = a; "
+                                           "// selyth:invariant true\n while (t > 0) {\n // selyth:invariant t >= 0\n t -= 1; } return t; }",
+                                           {"functions": {"g": {"dafny_name": "G", "nat": ["a"],
+                                                                "returns": [["t", "int"]]}}}),
+        "invariant before any function": ("// selyth:invariant true\nexport function f(a: number): number { return a; }",
+                                           {"functions": {"f": other}}),
+        "invariant conflicting with the sidecar": ("export function g(a: number): number { let t = a;\n"
+                                                    "// selyth:invariant t >= 0\nwhile (t > 0) { t -= 1; } return t; }",
+                                                    {"functions": {"g": {"dafny_name": "G", "nat": ["a"],
+                                                                         "returns": [["t", "int"]],
+                                                                         "loop": {"invariant": "true"}}}}),
+        "caller before any function": ("// selyth:caller method U() { }\nexport function f(a: number): number { return a; }",
+                                        {"functions": {"f": other}}),
+        "caller not a method": ("export function f(a: number): number { return a; }\n// selyth:caller lemma L() {}",
+                                {"functions": {"f": other}}),
+        "caller with assume": ("export function f(a: number): number { return a; }\n// selyth:caller method U() { assume true; }",
+                               {"functions": {"f": other}}),
+        "caller conflicting with the sidecar": ("export function f(a: number): number { return a; }\n// selyth:caller method U() { }",
+                                                 {"functions": {"f": {**other, "callers": "method V() { }"}}}),
+        "caller on a pure function": ("export function d(x: number): number { return x + x; }\n"
+                                      "// selyth:caller method U() { var r := D(1); }\n"
+                                      "export function f(a: number): number { return d(a); }",
+                                      {"functions": {"d": {"dafny_name": "D", "nat": ["x"],
+                                                           "returns": [["result", "int"]], "pure": True},
+                                                     "f": other}}),
+    }
+    for label, (ts, sp) in cases.items():
+        check(refused(ts, sp) is not None, f"contract comments: {label} is refused", ts)
+
+
 def main():
     check_ledger()
     check_shapes()
@@ -580,6 +643,7 @@ def main():
     check_constructs()
     check_switch()
     check_arrays_calls_lemmas()
+    check_contract_comments()
     check_refusals()
     check_differential()
     check_construct_differential()

@@ -439,9 +439,13 @@ def check_constructs(dafny, solver, version):
     ts_source = (
         "export function sumTo(n: number): number {\n"
         "  let t = 0;\n"
-        "  for (let i = 0; i < n; i++) { t += i; }\n"
+        "  for (let i = 0; i < n; i++) {\n"
+        "    // selyth:invariant 0 <= i <= n\n"
+        "    t += i;\n"
+        "  }\n"
         "  return t;\n"
         "}\n"
+        "// selyth:caller method UseSumTo() { var t := SumTo(5); }\n"
         "export function maxAbs(a: number, b: number): number {\n"
         "  return a > b ? Math.abs(a) : Math.abs(b - a);\n"
         "}\n"
@@ -471,8 +475,7 @@ def check_constructs(dafny, solver, version):
             "functions": {
                 "sumTo": {"dafny_name": "SumTo", "nat": ["n"], "returns": [["t", "nat"]],
                           "obligations": ["T-1"],
-                          "loop": {"invariant": "0 <= i <= n", "obligations": ["T-2", "T-3"]},
-                          "callers": "method UseSumTo() { var t := SumTo(5); }"},
+                          "loop": {"obligations": ["T-2", "T-3"]}},
                 "maxAbs": {"dafny_name": "MaxAbs", "nat": ["a", "b"], "returns": [["result", "nat"]],
                            "obligations": ["C-1"]},
                 "clamp": {"dafny_name": "Clamp", "nat": ["lo", "hi"], "returns": [["result", "int"]],
