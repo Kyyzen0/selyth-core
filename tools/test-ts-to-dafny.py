@@ -531,7 +531,7 @@ def check_arrays_calls_lemmas():
                      " return t[a] + double(1) + t.length; }", spec)
     check("function Double(x: nat): int" in out and "x + x" in out,
           "a pure function (single return, \"pure\": true) becomes a Dafny function", out)
-    check("const t: seq<int> := [10, 20, 30];" in out, "a const array literal becomes a seq<int>", out)
+    check("var t: seq<int> := [10, 20, 30];" in out, "a const array literal becomes a read-only seq<int> (a `var`: Dafny has no local const)", out)
     check("result := t[a] + Double(1) + |t|;" in out,
           "a[i] indexes the seq, a.length is |a|, a pure call is a function call", out)
     out = translated("export function double(x: number): number { return x + x; }\n"

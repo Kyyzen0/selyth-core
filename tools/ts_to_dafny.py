@@ -759,7 +759,7 @@ def translate_function(fn, spec, indent="  "):
                     raise TranslationError(f"{fn['name']}: the array {name} collides with a parameter or result")
                 dname, _ = ctx.arrays[name]
                 values = ", ".join(ctx.emit(v) for v in s[2])
-                lines.append(f"{pad}const {dname}: seq<int> := [{values}];")
+                lines.append(f"{pad}var {dname}: seq<int> := [{values}];")
             elif kind == "assign":
                 _, name, op, value = s
                 target = dafny_name(name)

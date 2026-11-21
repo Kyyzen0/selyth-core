@@ -490,8 +490,9 @@ def check_constructs(dafny, solver, version):
           and "function Min(x: int, y: int): int" in workspace and "function Max(x: int, y: int): int" in workspace
           and "result := Max(lo, Min(x, hi));" in workspace and "result := Min(x, hi);" in workspace
           and "if x == 0 {" in workspace and "if x == 1 {" in workspace
-          and "const t: seq<int> := [10, 20, 30];" in workspace and "t[a] + Double(0)" in workspace
-          and "function Double(x: nat): int" in workspace and workspace.startswith("lemma DoubleNonneg"),
+          and "var t: seq<int> := [10, 20, 30];" in workspace and "t[a] + Double(0)" in workspace
+          and "function Double(x: nat): int" in workspace
+          and "lemma DoubleNonneg(x: nat) ensures Double(x) >= 0 {}" in workspace,
           "(setup) the translation emits the helpers, the desugared while, the if-expression, the switch chain, the array, the pure function, the lemma",
           workspace)
     document = {
@@ -526,7 +527,7 @@ def check_constructs(dafny, solver, version):
              "statement": "ensures a >= 3 ==> result == 0",
              "required_evidence_kind": "kernel-proven", "assumptions": [], "affected_components": ["t.ts"]},
             {"obligation_id": "P-3", "kind": "postcondition",
-             "statement": "ensures double(2) == 4",
+             "statement": "ensures a < 3 ==> result >= 10",
              "required_evidence_kind": "kernel-proven", "assumptions": [], "affected_components": ["t.ts"]},
         ]}
     ir = adapter.lower(document, version)
