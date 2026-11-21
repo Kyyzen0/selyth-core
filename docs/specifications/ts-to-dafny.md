@@ -13,7 +13,7 @@
 | `let`, `const`, `=`, `+=`, `-=`, `++` | `var`, `:=`, `x := x + e`, `x := x - e` |
 | `if` / `else`, blocks, early `return` | the same, with `return;` after the result assignment |
 | `while (c)` or `while (true) { if (e) break; ... }` | `while c` / `while !e` (a comparison is inverted, not wrapped) |
-| `do { ... } while (c);` | `while true { ...; if !c { break } }` — a post-test loop: the body runs at least once; same one-loop-per-function limit and invariant requirement |
+| `do { ... } while (c);` | `while true { ...; if !c { break; } }` — a post-test loop: the body runs at least once; same one-loop-per-function limit and invariant requirement; after the loop Dafny knows `!c` (the exit test is false), not the invariant |
 | `for (let i = K; i < e; i++) { ... }` | `var i := K; while i < e { ...; i := i + 1; }` (K a non-negative literal; `<` or `<=`; only `i++` as the update) |
 | `switch (e) { case K: ...; [default: ...] }` | a chain of `if e == K ... else ...` (integer-literal labels only, no duplicates, each case ends with `break;` or `return ...;` — no fallthrough — `default` last) |
 | `else if (e) s` | nested `else { if ... }` |

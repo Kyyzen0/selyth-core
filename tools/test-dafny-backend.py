@@ -550,33 +550,34 @@ def check_constructs(dafny, solver, version):
 def check_dowhile(dafny, solver, version):
     """The do-while increment, proven by a real Dafny (post-test loop semantics)."""
     heading("Widened subset: do { ... } while (c); proven by real Dafny")
-    ts_source = ("export function countdown(n: number): number {\n"
-                 "  let t = n;\n"
+    ts_source = ("export function atLeastOne(n: number): number {\n"
+                 "  let t = 0;\n"
                  "  do {\n"
-                 "    // selyth:invariant 0 <= t <= n\n"
-                 "    t -= 1;\n"
-                 "  } while (t > 0);\n"
+                 "    // selyth:invariant 0 <= t <= n + 1\n"
+                 "    t += 1;\n"
+                 "  } while (t < n + 1);\n"
                  "  return t;\n"
                  "}\n")
-    spec = {"functions": {"countdown": {"dafny_name": "Countdown", "nat": ["n"], "returns": [["t", "nat"]],
+    spec = {"functions": {"atLeastOne": {"dafny_name": "AtLeastOne", "nat": ["n"], "returns": [["t", "nat"]],
                                          "obligations": ["D-1"],
-                                         "loop": {"obligations": ["D-2", "D-3"]}}}}
+                                         "loop": {"decreases": "n + 1 - t", "obligations": ["D-2", "D-3"]}}}}
     workspace = t2d.translate(ts_source, spec)
-    check("while true" in workspace and "invariant 0 <= t <= n" in workspace
-          and "if t <= 0 { break }" in workspace and "t := t - 1;" in workspace,
+    check("while true" in workspace and "invariant 0 <= t <= n + 1" in workspace
+          and "decreases n + 1 - t" in workspace
+          and "if t >= n + 1 { break; }" in workspace and "t := t + 1;" in workspace,
           "(setup) the do-while is emitted as while true with the invariant and the negated exit test",
           workspace)
-    check(workspace.index("t := t - 1;") < workspace.index("if t <= 0 { break }"),
+    check(workspace.index("t := t + 1;") < workspace.index("if t >= n + 1 { break; }"),
           "(setup) the body runs before the exit test (post-test semantics)", workspace)
     document = {
         "selyth_obligation_set_version": "0.1.0", "set_id": "dowhile", "specification_version": "1.0.0",
         "title": "Do-while synthetic set",
         "obligations": [
-            {"obligation_id": "D-1", "kind": "postcondition", "statement": "ensures t == 0",
+            {"obligation_id": "D-1", "kind": "postcondition", "statement": "ensures t >= n + 1",
              "required_evidence_kind": "kernel-proven", "assumptions": [], "affected_components": ["t.ts"]},
-            {"obligation_id": "D-2", "kind": "termination", "statement": "decreases t",
+            {"obligation_id": "D-2", "kind": "termination", "statement": "decreases n + 1 - t",
              "required_evidence_kind": "kernel-proven", "assumptions": [], "affected_components": ["t.ts"]},
-            {"obligation_id": "D-3", "kind": "invariant", "statement": "invariant 0 <= t <= n",
+            {"obligation_id": "D-3", "kind": "invariant", "statement": "invariant 0 <= t <= n + 1",
              "required_evidence_kind": "kernel-proven", "assumptions": [], "affected_components": ["t.ts"]},
         ]}
     ir = adapter.lower(document, version)
@@ -586,7 +587,7 @@ def check_dowhile(dafny, solver, version):
           "    " + "; ".join(f"{p.path} {p.message}" for p in validate.validate(report, REPORT_SCHEMA)))
     check(outcomes(report) == {"D-1": "proven", "D-2": "proven", "D-3": "proven"},
           "the do-while's postcondition, termination and invariant are proven by real Dafny "
-          "(the body ran at least once: t == 0 after the loop)",
+          "(post-test loop: after it, the exit test is false, so t >= n + 1)",
           f"    {outcomes(report)}")
     check(report["decision"]["result"] == "accepted", "and the run is accepted",
           f"    {report['decision']['violations']}")

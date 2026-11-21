@@ -830,30 +830,16 @@ def translate_function(fn, spec, indent="  "):
         if loop_used[0]:
             raise TranslationError(f"{fn['name']}: one loop per function is the limit of this translator")
         loop_used[0] = True
-        if s[0] == "dowhile":                              # do { B } while (c); — post-test: B runs first
-            cond, body = s[1], s[2]
-            spec_loop = spec.get("loop") or {}
-            invariant = fn.get("resolved_invariant") or spec_loop.get("invariant")
-            if not invariant:
-                raise TranslationError(f"{fn['name']}: a loop needs an invariant (a selyth:invariant comment or "
-                                       f"the sidecar)")
-            lines = [f"{pad}while true", f"{pad}{indent}invariant {invariant}"]
-            loop_ids = fn.get("resolved_loop_obligations") or spec_loop.get("obligations")
-            if loop_ids:
-                lines.append(f"{pad}{indent}// selyth:obligation {' '.join(loop_ids)}")
-            lines.append(f"{pad}{{")
-            lines += stmts(body, depth + 1)
-            lines.append(f"{pad}{indent}if {ctx.emit(ctx.negate(cond))} {{ break }}")
-            lines.append(f"{pad}}}")
-            return lines
         cond, body = s[1], s[2]
-        if cond == ("bool", True):                         # while (true) { ...; if (c) break; rest }
+        post_test = s[0] == "dowhile"                      # do { B } while (c); — post-test: B runs first
+        if not post_test and cond == ("bool", True):       # while (true) { ...; if (c) break; rest }
             at = next((k for k, b in enumerate(body) if b[0] == "if" and b[2] == [("break",)] and b[3] is None), None)
             if at is None or at != 0:
                 raise TranslationError(f"{fn['name']}: `while (true)` must begin with `if (e) break;`")
-            exit_cond = body[0][1]
-            head = ctx.emit(ctx.negate(exit_cond))
+            head = ctx.emit(ctx.negate(body[0][1]))
             body = body[1:]
+        elif post_test:
+            head = "true"
         else:
             head = ctx.emit(cond)
         spec_loop = spec.get("loop") or {}
@@ -861,12 +847,20 @@ def translate_function(fn, spec, indent="  "):
         if not invariant:
             raise TranslationError(f"{fn['name']}: a loop needs an invariant (a selyth:invariant comment or "
                                    f"the sidecar)")
+        decreases = spec_loop.get("decreases")
+        if post_test and not decreases:
+            raise TranslationError(f"{fn['name']}: a do-while needs an explicit `decreases` in the sidecar "
+                                   f"(loop.decreases): Dafny cannot infer one for `while true`")
         lines = [f"{pad}while {head}", f"{pad}{indent}invariant {invariant}"]
+        if decreases:
+            lines.append(f"{pad}{indent}decreases {decreases}")
         loop_ids = fn.get("resolved_loop_obligations") or spec_loop.get("obligations")
         if loop_ids:
             lines.append(f"{pad}{indent}// selyth:obligation {' '.join(loop_ids)}")
         lines.append(f"{pad}{{")
         lines += stmts(body, depth + 1)
+        if post_test:
+            lines.append(f"{pad}{indent}if {ctx.emit(ctx.negate(cond))} {{ break; }}")
         lines.append(f"{pad}}}")
         return lines
 
