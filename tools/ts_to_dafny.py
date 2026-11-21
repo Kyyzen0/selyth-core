@@ -8,9 +8,13 @@ The subset (anything else is refused with a located error, never guessed):
     parameter of function type (a test hook such as `observe?: (i: number, t: number) => void`)
     is dropped together with the statements that call it;
   * statements: `let|const x = e;`, `x = e;`, `x += e;`, `x -= e;`, `x++;`, `return e;`,
-    `return [e, e];`, `if (e) s [else s]`, `while (e) { ... }`, `while (true) { ...; if (e) break; ... }`,
+    `return [e, e];`, `if (e) s [else s]` (chains of `else if` included), `while (e) { ... }`,
+    `while (true) { ...; if (e) break; ... }`,
     `for (let i = K; i < e; i++) { ... }` (K a non-negative literal, `<` or `<=`, only `i++` as the
-    update — desugared to a `while` with an explicit counter), blocks;
+    update — desugared to a `while` with an explicit counter),
+    `switch (e) { case K: s...; case L: s...; [default: s...] }` with integer-literal labels only,
+    each case ending in `break;` or `return ...;` (no fallthrough), `default` last — desugared to
+    a chain of `if (e === K) ... else ...`, blocks;
   * expressions: integer literals, identifiers, `+ - * % / === !== < <= > >= && || !`, unary `-`,
     parentheses, `c ? a : b`, `Math.floor(a / b)` as the only division, `Math.abs(e)` (emitted as
     an `Abs` helper on `int`; exact because `nat` is a subtype of `int`), and `Math.min(a, b)` /
@@ -272,6 +276,66 @@ class Parser:
             body = self.body_of(hooks)
             return ("block", [("let", var, init),
                               ("while", cond, [*body, ("assign", var, "+=", ("num", 1))])])
+        if tok == "switch":
+            # Desugared at parse time into a chain of `if (subj === K) ... else ...`, so the
+            # emitter and the one-loop-per-function rule apply unchanged. Conservative by
+            # construction: integer-literal labels only, no duplicate, no fallthrough (a case
+            # must end with `break;` or `return ...;`), `default` last.
+            self.next()
+            self.eat("(")
+            subj = self.expr()
+            self.eat(")")
+            self.eat("{")
+            cases = []
+            seen = set()
+            default_seen = False
+            while self.peek() != "}":
+                if default_seen:
+                    raise TranslationError("`default` must be the last clause of a switch")
+                if self.peek() == "case":
+                    self.next()
+                    label = self.expr()
+                    if label[0] == "num":
+                        n = label[1]
+                    elif label[0] == "un" and label[1] == "-" and label[2][0] == "num":
+                        n = -label[2][1]
+                    else:
+                        raise TranslationError("a case label must be an integer literal")
+                    if n in seen:
+                        raise TranslationError(f"duplicate case label {n}")
+                    seen.add(n)
+                    self.eat(":")
+                elif self.peek() == "default":
+                    self.next()
+                    self.eat(":")
+                    n = None
+                    default_seen = True
+                else:
+                    raise TranslationError("a switch holds only `case <int>:` and `default:` clauses")
+                body = []
+                while self.peek() not in ("case", "default", "}"):
+                    s = self.statement(hooks)
+                    if s is not None:
+                        body.append(s)
+                if not body:
+                    raise TranslationError("an empty case is refused (write `break;`)")
+                if body[-1] == ("break",):
+                    body = body[:-1]
+                elif body[-1][0] != "return":
+                    raise TranslationError("a case must end with `break;` or `return ...;` "
+                                           "(fallthrough is not translated)")
+                cases.append((n, body))
+            self.eat("}")
+            if not cases:
+                raise TranslationError("an empty switch is refused")
+            else_stmts = None
+            for n, body in reversed(cases):
+                if n is None:
+                    else_stmts = body
+                else:
+                    node = ("if", ("bin", "===", subj, ("num", n)), body, else_stmts)
+                    else_stmts = [node]
+            return ("block", else_stmts)
         if tok == "break":
             self.next()
             self.eat(";")
