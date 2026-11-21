@@ -65,6 +65,9 @@ test-python: venv
 	@echo "== Bench report schema and summarise() (docs/specifications/bench-schema.json)"
 	$(VPY) tools/test-bench.py
 	@echo
+	@echo "== Adversarial suite: an agent trying to get a bad change accepted is refused"
+	$(VPY) tools/test-adversarial.py
+	@echo
 	@echo "== Legacy suite (tools/test-schemas.py, tools/minischema.py), kept as a secondary check"
 	$(VPY) tools/test-schemas.py
 
