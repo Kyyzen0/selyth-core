@@ -148,6 +148,66 @@ pub fn exit_code(outcomes: &[Outcome], strict: bool) -> i32 {
     }
 }
 
+fn json_escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 2);
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// Machine-readable report: one JSON object with the summary counts and one entry per step.
+pub fn render_json(outcomes: &[Outcome]) -> String {
+    let mut passed = 0;
+    let mut failed = 0;
+    let mut skipped = 0;
+    let total_secs: f64 = outcomes.iter().map(|o| o.secs).sum();
+    let mut steps = Vec::new();
+    for o in outcomes {
+        let (status, reason, tail): (&str, Option<&str>, Option<&str>) = match &o.status {
+            Status::Passed => {
+                passed += 1;
+                ("passed", None, None)
+            }
+            Status::Failed => {
+                failed += 1;
+                ("failed", None, Some(o.tail.as_str()))
+            }
+            Status::Skipped(reason) => {
+                skipped += 1;
+                ("skipped", Some(reason.as_str()), None)
+            }
+        };
+        let mut entry = format!(
+            "{{\"suite\": \"{}\", \"name\": \"{}\", \"status\": \"{}\", \"secs\": {:.3}",
+            json_escape(&o.step.suite),
+            json_escape(&o.step.name),
+            status,
+            o.secs
+        );
+        if let Some(reason) = reason {
+            entry.push_str(&format!(", \"reason\": \"{}\"", json_escape(reason)));
+        }
+        if let Some(tail) = tail {
+            entry.push_str(&format!(", \"tail\": \"{}\"", json_escape(tail)));
+        }
+        entry.push('}');
+        steps.push(entry);
+    }
+    format!(
+        "{{\"summary\": {{\"passed\": {passed}, \"failed\": {failed}, \"skipped\": {skipped}, \"total_secs\": {total_secs:.3}}}, \"steps\": [{}]}}",
+        steps.join(", ")
+    )
+}
+
 /// One line per step plus the summary line.
 pub fn render(outcomes: &[Outcome]) -> String {
     let mut lines = Vec::new();
@@ -221,5 +281,21 @@ mod tests {
     fn tail_keeps_the_last_lines_only() {
         let text = (1..=30).map(|i| format!("line{i}")).collect::<Vec<_>>().join("\n");
         assert_eq!(tail_of(&text, 3), "line28\nline29\nline30");
+    }
+
+    #[test]
+    fn render_json_is_one_object_with_counts_and_escaped_strings() {
+        let steps = vec![step("ok", &["true"]), step("bad", &["false"])];
+        let outcomes = run_steps(&steps, 2, false, &Tools::default(), Path::new("/tmp"));
+        let text = render_json(&outcomes);
+        assert!(text.starts_with('{') && text.ends_with('}'), "{text}");
+        assert!(text.contains("\"passed\": 1"), "{text}");
+        assert!(text.contains("\"failed\": 1"), "{text}");
+        assert!(text.contains("\"skipped\": 0"), "{text}");
+        assert!(text.contains("\"status\": \"passed\""), "{text}");
+        assert!(text.contains("\"status\": \"failed\""), "{text}");
+        assert!(text.contains("\"name\": \"ok\""), "{text}");
+        assert!(text.contains("\"tail\":"), "failures keep their output tail: {text}");
+        assert_eq!(json_escape("a\"b\\c\nd\te"), "a\\\"b\\\\c\\nd\\te");
     }
 }
