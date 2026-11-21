@@ -23,6 +23,12 @@ The subset (anything else is refused with a located error, never guessed):
     calls to impure functions are refused;
   * `// selyth:lemma <Dafny lemma declaration>` comments, emitted as lemmas in the preamble —
     proven by Dafny (fail-closed); trust escapes (`assume`, `{:axiom}`, ...) are refused;
+  * `// selyth:invariant <Dafny invariant expression>` inside a function that has the (single)
+    loop: becomes the `invariant` clause of the `while`, in place of the sidecar `loop.invariant`;
+  * `// selyth:caller <Dafny method declaration>` after a function: emitted verbatim after the
+    method as a caller that proves preconditions, in place of the sidecar `callers`; each
+    comment is one full `method ...` declaration, verified like everything else (fail-closed),
+    trust escapes refused;
   * expressions: integer literals, identifiers, `+ - * % / === !== < <= > >= && || !`, unary `-`,
     parentheses, `c ? a : b`, `Math.floor(a / b)` as the only division, `Math.abs(e)` (emitted as
     an `Abs` helper on `int`; exact because `nat` is a subtype of `int`), and `Math.min(a, b)` /
@@ -47,9 +53,10 @@ What cannot be read from the code comes from a sidecar specification, a JSON doc
                            "obligations": [...]}, "callers": "<Dafny text>"}}}
 
 `nat` lists the parameters that are non-negative, `returns` names and types the results,
-`obligations` become the `// selyth:obligation` marker, and `callers`, `body_prefix`, `preamble`
-are hand-written scaffolding that the translator copies. The translation itself is the method
-signature and body.
+`obligations` become the `// selyth:obligation` marker, and `body_prefix`, `preamble`
+are hand-written scaffolding that the translator copies. The loop invariant and the callers may
+instead live in the code as `// selyth:invariant` / `// selyth:caller` comments (one source only:
+giving both differently is refused). The translation itself is the method signature and body.
 
 Usage: ts_to_dafny.py FILE.ts --spec SPEC.json [-o OUT.dfy]
 """
@@ -812,10 +819,12 @@ def translate_function(fn, spec, indent="  "):
             body = body[1:]
         else:
             head = ctx.emit(cond)
-        spec_loop = spec.get("loop")
-        if spec_loop is None or not spec_loop.get("invariant"):
-            raise TranslationError(f"{fn['name']}: a loop needs an invariant in the specification")
-        lines = [f"{pad}while {head}", f"{pad}{indent}invariant {spec_loop['invariant']}"]
+        spec_loop = spec.get("loop") or {}
+        invariant = fn.get("resolved_invariant") or spec_loop.get("invariant")
+        if not invariant:
+            raise TranslationError(f"{fn['name']}: a loop needs an invariant (a selyth:invariant comment or "
+                                   f"the sidecar)")
+        lines = [f"{pad}while {head}", f"{pad}{indent}invariant {invariant}"]
         if spec_loop.get("obligations"):
             lines.append(f"{pad}{indent}// selyth:obligation {' '.join(spec_loop['obligations'])}")
         lines.append(f"{pad}{{")
@@ -908,6 +917,59 @@ def extract_lemmas(ts_source):
     return [text for _, text in lemmas]
 
 
+_INVARIANT_RE = re.compile(r"//[ \t]*selyth:invariant[ \t]+(.*)")
+_CALLER_RE = re.compile(r"//[ \t]*selyth:caller[ \t]+(.*)")
+_FN_RE = re.compile(r"^\s*export\s+function\s+([A-Za-z_$][A-Za-z0-9_$]*)")
+
+
+def extract_contract_comments(ts_source):
+    """`// selyth:invariant <Dafny invariant>` and `// selyth:caller <Dafny method>` comments carry
+    the loop invariant and the callers in the code instead of the sidecar. One loop per function
+    makes the association unambiguous: an invariant comment belongs to the function being parsed,
+    a caller comment to the function just closed. Callers are emitted as methods and verified
+    like everything else (fail-closed); trust escapes are refused here as for lemmas."""
+    invariants, callers = {}, {}
+    current = None
+    for lineno, line in enumerate(ts_source.splitlines(), 1):
+        fn = _FN_RE.match(line)
+        if fn:
+            current = fn.group(1)
+        m = _INVARIANT_RE.search(line)
+        if m:
+            if current is None:
+                raise TranslationError(f"line {lineno}: a selyth:invariant comment must sit inside a function")
+            text = m.group(1).strip()
+            if not text:
+                raise TranslationError(f"line {lineno}: a selyth:invariant comment holds a Dafny invariant expression")
+            if current in invariants:
+                raise TranslationError(f"line {lineno}: function {current} has two selyth:invariant comments "
+                                       f"(one loop per function)")
+            invariants[current] = text
+            continue
+        m = _CALLER_RE.search(line)
+        if m:
+            if current is None:
+                raise TranslationError(f"line {lineno}: a selyth:caller comment must follow a function")
+            text = m.group(1).strip()
+            if not text.startswith("method "):
+                raise TranslationError(f"line {lineno}: a selyth:caller comment holds a full Dafny method declaration")
+            if any(w in text for w in _TRUST_WORDS):
+                raise TranslationError(f"line {lineno}: trust escapes are refused in code (the workspace scan "
+                                       f"refuses them too)")
+            callers.setdefault(current, []).append(text)
+    return invariants, callers
+
+
+def _has_loop(stmts):
+    for s in stmts:
+        if s[0] == "while":
+            return True
+        for part in s[1:]:
+            if isinstance(part, list) and _has_loop(part):
+                return True
+    return False
+
+
 def _is_pure(fn, entry):
     """A pure function is emitted as a Dafny `function` (callable in expressions): a single
     `return e;`, no loop, no hook, no obligations/callers in the sidecar."""
@@ -915,7 +977,8 @@ def _is_pure(fn, entry):
         return False
     if fn["hooks"]:
         raise TranslationError(f"{fn['name']}: a pure function cannot have a test hook")
-    if entry.get("loop") or entry.get("obligations") or entry.get("callers"):
+    if (entry.get("loop") or entry.get("obligations") or entry.get("callers")
+            or fn.get("resolved_invariant") or fn.get("resolved_callers")):
         raise TranslationError(f"{fn['name']}: a pure function cannot carry a loop, obligations or callers")
     if fn["arity"] != 1 or len(fn["body"]) != 1 or fn["body"][0][0] != "return" or len(fn["body"][0][1]) != 1:
         raise TranslationError(f"{fn['name']}: a pure function is exactly one `return e;`")
@@ -935,6 +998,7 @@ def translate(ts_source, spec):
     function its translated method — or Dafny function, for pure ones — and the hand-written
     callers, in the order the functions appear in the code."""
     lemmas = extract_lemmas(ts_source)
+    invariants, caller_comments = extract_contract_comments(ts_source)
     functions = Parser(tokenize(ts_source)).program()
     seen = {f["name"] for f in functions}
     declared = spec.get("functions", {})
@@ -944,6 +1008,23 @@ def translate(ts_source, spec):
         raise TranslationError(f"function {name} has no entry in the specification")
     for name in sorted(set(declared) - seen):
         raise TranslationError(f"the specification names {name}, which the code does not declare")
+    for fn in functions:
+        name = fn["name"]
+        entry = declared[name]
+        inv = invariants.get(name)
+        if inv is not None and not _has_loop(fn["body"]):
+            raise TranslationError(f"{name}: a selyth:invariant comment needs the function's loop")
+        side_inv = (entry.get("loop") or {}).get("invariant")
+        if inv is not None and side_inv and inv != side_inv:
+            raise TranslationError(f"{name}: the invariant is given both in a selyth:invariant comment and in "
+                                   f"the sidecar, differently")
+        fn["resolved_invariant"] = inv or side_inv
+        cl = caller_comments.get(name)
+        side_cl = entry.get("callers")
+        if cl and side_cl and "\n".join(cl) != side_cl.strip():
+            raise TranslationError(f"{name}: callers are given both in selyth:caller comments and in the "
+                                   f"sidecar, differently")
+        fn["resolved_callers"] = "\n".join(cl) if cl else side_cl
     pure = {fn["name"]: declared[fn["name"]] for fn in functions if _is_pure(fn, declared[fn["name"]])}
     pure_calls = {name: entry["dafny_name"] for name, entry in pure.items()}
     pure_nat = {entry["dafny_name"] for entry in pure.values() if entry["returns"][0][1] == "nat"}
@@ -979,9 +1060,10 @@ def translate(ts_source, spec):
             block.append(translate_pure(fn, entry))
         else:
             block.append(translate_function(fn, entry))
-            if entry.get("callers"):
+            callers_text = fn.get("resolved_callers")
+            if callers_text:
                 block.append("")
-                block.append(entry["callers"].rstrip("\n"))
+                block.append(callers_text.rstrip("\n"))
         parts.append("\n".join(block))
     return "\n\n".join(p for p in parts if p) + "\n"
 
