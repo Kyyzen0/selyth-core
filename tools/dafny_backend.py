@@ -322,26 +322,11 @@ def _child_cost(before, after):
     return {"cpu_ms": max(0, int(cpu_s * 1000)), "peak_rss_bytes": after.ru_maxrss * rss_unit}
 
 
-def run_obligation(dafny, solver, workspace_name, source, unit, resource_limit, time_limit,
-                   contract_clauses=None):
-    """Verify one obligation; return (outcome, diagnostics, cost)."""
-    oid, clause = unit["obligation_id"], unit["clause"]
+def _verify_text(dafny, solver, workspace_name, text, resource_limit, time_limit, filter_symbol=None):
+    """Run `dafny verify` on `text`; return (output, returncode, cost). With `filter_symbol`, only
+    the declarations whose name matches are verified (Dafny then treats the other symbols as
+    assumed, so a filtered run is only sound together with one full pass over the workspace)."""
     cost = {"timed_out": False}
-    count = marker_count(source, oid)
-    if count != 1:
-        return "not-run", [f"the workspace has {count} markers for {oid}; exactly one is needed"], cost
-    if clause["keyword"] == "requires":
-        # Attached to a method nobody calls, a precondition makes the body easier and checks
-        # nothing: the proof would be vacuous.
-        name = enclosing_declaration(source, oid)
-        if name is not None and declaration_count(source, name) > 1:
-            return "unknown", [f"{oid} is a precondition of {name}, but the workspace declares {name} more "
-                               "than once: a call site cannot be attributed to this one, so none is assumed"], cost
-        if name is None or call_sites(source, name) == 0:
-            return "unknown", [f"{oid} is a precondition, but the workspace has no call site of "
-                               f"{name or 'its method'}: verifying it would prove nothing"], cost
-    hypotheses = [c for _, c in hypotheses_for(source, unit, contract_clauses or {})]
-    text = instantiate(source, oid, f"{clause['keyword']} {clause['expression']}", hypotheses)
     with tempfile.TemporaryDirectory(prefix="selyth-dafny-") as tmp:
         path = Path(tmp) / workspace_name
         path.write_text(text, encoding="utf-8")
@@ -349,7 +334,10 @@ def run_obligation(dafny, solver, workspace_name, source, unit, resource_limit, 
         command = [str(dafny), "verify", "--solver-path", str(solver),
                    "--resource-limit", str(resource_limit),
                    "--verification-time-limit", str(time_limit),
-                   "--log-format", f"csv;LogFileName={log}", str(path)]
+                   "--log-format", f"csv;LogFileName={log}"]
+        if filter_symbol:
+            command += ["--filter-symbol", filter_symbol]
+        command.append(str(path))
         started = time.monotonic()
         before = resource.getrusage(resource.RUSAGE_CHILDREN)
         try:
@@ -358,7 +346,7 @@ def run_obligation(dafny, solver, workspace_name, source, unit, resource_limit, 
             after = resource.getrusage(resource.RUSAGE_CHILDREN)
             cost.update(wall_ms=int((time.monotonic() - started) * 1000), timed_out=True,
                         **_child_cost(before, after))
-            return "timeout", ["the Dafny process was killed after its wall-clock allowance"], cost
+            return "", 124, cost
         after = resource.getrusage(resource.RUSAGE_CHILDREN)
         cost["wall_ms"] = int((time.monotonic() - started) * 1000)
         cost.update(_child_cost(before, after))
@@ -367,7 +355,39 @@ def run_obligation(dafny, solver, workspace_name, source, unit, resource_limit, 
             with log.open(newline="", encoding="utf-8") as handle:
                 cost["resource_units"] = sum(int(row["TestResult.ResourceCount"] or 0)
                                              for row in csv.DictReader(handle))
-    outcome, diagnostics = parse_dafny(output, run.returncode)
+    return output, run.returncode, cost
+
+
+def run_obligation(dafny, solver, workspace_name, source, unit, resource_limit, time_limit,
+                   contract_clauses=None):
+    """Verify one obligation; return (outcome, diagnostics, cost). The run is filtered to the
+    declaration enclosing the marker (--filter-symbol), so the per-obligation cost does not scale
+    with the workspace size; the workspace-wide pass that keeps lemmas and helpers proven is done
+    once per report in obligation_results."""
+    oid, clause = unit["obligation_id"], unit["clause"]
+    cost = {"timed_out": False}
+    count = marker_count(source, oid)
+    if count != 1:
+        return "not-run", [f"the workspace has {count} markers for {oid}; exactly one is needed"], cost
+    name = enclosing_declaration(source, oid)
+    if clause["keyword"] == "requires":
+        # Attached to a method nobody calls, a precondition makes the body easier and checks
+        # nothing: the proof would be vacuous.
+        if name is not None and declaration_count(source, name) > 1:
+            return "unknown", [f"{oid} is a precondition of {name}, but the workspace declares {name} more "
+                               "than once: a call site cannot be attributed to this one, so none is assumed"], cost
+        if name is None or call_sites(source, name) == 0:
+            return "unknown", [f"{oid} is a precondition, but the workspace has no call site of "
+                               f"{name or 'its method'}: verifying it would prove nothing"], cost
+    hypotheses = [c for _, c in hypotheses_for(source, unit, contract_clauses or {})]
+    text = instantiate(source, oid, f"{clause['keyword']} {clause['expression']}", hypotheses)
+    # A precondition is proved at its call sites, which live in other declarations (the callers),
+    # so a `requires` run must stay unfiltered; everything else is filtered to the enclosing
+    # declaration.
+    filter_symbol = f"{name}." if name and clause["keyword"] != "requires" else None
+    output, returncode, cost = _verify_text(dafny, solver, workspace_name, text, resource_limit, time_limit,
+                                            filter_symbol=filter_symbol)
+    outcome, diagnostics = parse_dafny(output, returncode)
     cost["timed_out"] = outcome == "timeout"
     return outcome, diagnostics, cost
 
@@ -376,6 +396,43 @@ def evidence(outcome, tool, scope, assumptions, cost):
     return {"kind": "kernel-proven",
             "soundness": "sound-for-fragment" if outcome == "proven" else "none",
             "producer_tool": tool, "scope": scope, "assumptions": assumptions, "cost": cost}
+
+
+_ERROR_LINE = re.compile(r"\((\d+),\d+\): Error")
+
+
+def _declaration_starts(source):
+    lines = source.split("\n")
+    return sorted({i for i, line in enumerate(lines, 1) if _DECLARATION.search(line.split("//", 1)[0])})
+
+
+def _in_marker_declaration(source, lineno):
+    """True if `lineno` sits in a declaration whose span carries at least one obligation marker."""
+    lines = source.split("\n")
+    starts = _declaration_starts(source)
+    for idx, start in enumerate(starts):
+        end = starts[idx + 1] - 1 if idx + 1 < len(starts) else len(lines)
+        if start <= lineno <= end:
+            return any(marker_ids(lines[m - 1]) for m in range(start, end + 1))
+    return False
+
+
+def _integrity_outcome(source, output, returncode):
+    """Outcome of the full-workspace pass. Verification errors located in a declaration that
+    carries a marker are tolerated — that declaration is verified by its own obligation runs —
+    but anything else (lemmas, helpers, callers, unmarked methods, warnings, resolution errors)
+    fails the pass, so a false lemma still fails every obligation, as a whole-workspace run would."""
+    outcome, diagnostics = parse_dafny(output, returncode)
+    if outcome in ("proven", "timeout", "unknown"):
+        return outcome, diagnostics
+    if "finished with" not in output:
+        return outcome, diagnostics          # resolution/type errors: global, never tolerated
+    if any("Warning" in line for line in output.splitlines()):
+        return outcome, diagnostics          # warnings (e.g. a body-less lemma) are fail-closed
+    error_lines = [int(m.group(1)) for line in output.splitlines() if (m := _ERROR_LINE.search(line))]
+    if error_lines and all(_in_marker_declaration(source, n) for n in error_lines):
+        return "proven", []
+    return outcome, diagnostics
 
 
 def obligation_results(ir, source, workspace_name, dafny, solver, version, resource_limit, time_limit,
@@ -394,11 +451,21 @@ def obligation_results(ir, source, workspace_name, dafny, solver, version, resou
     escapes = trust_escapes(source)
     contract_clauses = {u["obligation_id"]: f"{u['clause']['keyword']} {u['clause']['expression']}"
                         for u in ir["units"] if u["clause"]["keyword"] in ("requires", "decreases")}
-    for unit in ir["units"]:
+    # One full-workspace pass per report: the per-obligation runs are filtered to the enclosing
+    # declaration (--filter-symbol), and Dafny then treats the other symbols as assumed, so the
+    # lemmas, helpers and unmarked bodies are proven here, once. A failure fails every obligation,
+    # exactly as a whole-workspace run would have.
+    integrity = None
+    if not escapes:
+        out, rc, integrity_cost = _verify_text(dafny, solver, workspace_name, source, resource_limit, time_limit)
+        integrity = (_integrity_outcome(source, out, rc), integrity_cost)
+    for index, unit in enumerate(ir["units"]):
         oid, clause = unit["obligation_id"], unit["clause"]
         under = hypotheses_for(source, unit, contract_clauses)
         scope = (f"Dafny {version} verification of `{clause['keyword']} {clause['expression']}` "
-                 f"with the clauses written by hand in {workspace_name}, one obligation at a time"
+                 f"with the clauses written by hand in {workspace_name}, one obligation at a time, each run "
+                 f"filtered to its enclosing declaration (--filter-symbol), plus one full-workspace integrity "
+                 f"pass per report (charged to the first obligation)"
                  + (f", under the clauses {', '.join(i for i, _ in under)} of its contract" if under else "")
                  + f" (resource limit {resource_limit}, time limit {time_limit}s, z3 {Z3_VERSION})")
         premises = unit["context"]["assumptions"] + [
@@ -409,9 +476,22 @@ def obligation_results(ir, source, workspace_name, dafny, solver, version, resou
             diagnostics = [f"forbidden construct {name} at line {line} of {workspace_name}: the proof "
                            "would depend on something Dafny did not check or the report does not bind"
                            for line, name in escapes]
+        elif integrity is not None and integrity[0][0] != "proven":
+            outcome = integrity[0][0] if integrity[0][0] == "timeout" else "failed"
+            cost = {"timed_out": outcome == "timeout"}
+            diagnostics = [f"the full-workspace integrity pass did not prove the workspace, so no obligation "
+                           f"can be trusted ({outcome}): " + "; ".join(integrity[0][1][:3])]
         else:
             outcome, diagnostics, cost = run_obligation(dafny, solver, workspace_name, source, unit,
                                                         resource_limit, time_limit, contract_clauses)
+            if index == 0 and integrity is not None:
+                other = integrity[1]
+                cost["wall_ms"] = cost.get("wall_ms", 0) + other.get("wall_ms", 0)
+                cost["cpu_ms"] = cost.get("cpu_ms", 0) + other.get("cpu_ms", 0)
+                if other.get("peak_rss_bytes"):
+                    cost["peak_rss_bytes"] = max(cost.get("peak_rss_bytes", 0), other["peak_rss_bytes"])
+                if other.get("resource_units"):
+                    cost["resource_units"] = cost.get("resource_units", 0) + other["resource_units"]
         entry = {**base(unit, unit["context"]["affected_components"]), "outcome": outcome,
                  "evidence": evidence(outcome, tool, scope, premises, cost)}
         if diagnostics:

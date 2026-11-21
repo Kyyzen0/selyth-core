@@ -121,11 +121,40 @@ loop). The third-party module costs ~15.3 k resource units per obligation agains
 ~64 k, i.e. ~4× cheaper per obligation, in the same ~0.9 s wall-clock band. The fast-tier question
 (E-05) holds for both: every obligation of both modules verifies in under 1 s on the CI runner.
 
+## Filtered per-obligation runs (2026-11-21)
+
+Since the runs above, `tools/dafny_backend.py` verifies each obligation with
+`dafny verify --filter-symbol <enclosing declaration>.`, so a run no longer re-verifies the whole
+workspace file: the per-obligation cost stops scaling with the module size. Two soundness rules
+keep it fail-closed (Dafny treats filtered-out symbols as assumed):
+
+- a `requires` obligation is **not** filtered — a precondition is proved at its call sites, which
+  live in other declarations (the callers), so its run stays whole-workspace;
+- one **full-workspace integrity pass** runs once per report (its cost is charged to the first
+  obligation). Errors located in a declaration that carries a marker are tolerated there — that
+  declaration is verified by its own obligation run — while anything else (lemmas, helpers,
+  callers, unmarked methods, warnings such as a body-less lemma, resolution errors) fails the pass
+  and therefore every obligation, exactly as a whole-workspace run would have.
+
+Local run, same Dafny 4.11.0 build, sandbox machine (`make bench`, `make bench EXAMPLE=gcd`):
+
+| Module | obligations | resource_units total (before → after) | wall_ms total | resource_units / obligation (after) |
+|---|---|---|---|---|
+| ledger | 20 | 1 281 714 → **501 097** | 17 699 → 21 632 | ~3.1 k–16.3 k filtered; ~63 k for the 5 unfiltered `requires` (LED-01 also carries the integrity pass: 126 k) |
+| gcd | 4 (+2 property) | ~183 k → **81 489** | 5 271 | 13 k–34 k (GCD-01 unfiltered + integrity) |
+
+Resource units (the deterministic metric, R7) drop ~2.6× on the ledger; wall-clock is dominated
+by process start-up at this size (~1 s per obligation either way) and the gain grows with the
+workspace size, which was the point. The fast tier (2 s per obligation) still holds per
+obligation on both modules.
+
 ## Limits
 
 - One module, one machine, one tool build. Dafny's solver is seed-dependent (R7: one measured
   project saw a 30% failure rate over 100 runs), so `wall_ms` is not reproducible; only
   `resource_units` is claimed deterministic, and only for this build.
-- The backend verifies one obligation at a time and re-verifies the whole workspace file per
-  obligation (see `tools/test-ledger.py`), so the cost scales as obligations × file size. That
-  is a property of this backend, not of the gate's design.
+- The backend verifies one obligation at a time, each run filtered to the enclosing declaration
+  (`--filter-symbol`), plus one full-workspace integrity pass per report; `requires` obligations
+  stay unfiltered because they are proved at their call sites (see `tools/dafny_backend.py` and
+  `tools/test-ledger.py`). Per-obligation cost is now dominated by tool start-up, not by
+  obligations × file size.
