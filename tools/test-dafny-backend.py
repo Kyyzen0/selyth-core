@@ -433,9 +433,9 @@ def check_cli_usage():
 
 
 def check_constructs(dafny, solver, version):
-    """The widened subset (counted for-loop, ternary, Math.abs) translates to Dafny that a real
-    Dafny proves: the emitted workspace verifies, obligation by obligation."""
-    heading("Widened subset verified by real Dafny: counted for, ternary, Math.abs")
+    """The widened subset (counted for-loop, ternary, Math.abs, Math.min/max) translates to Dafny
+    that a real Dafny proves: the emitted workspace verifies, obligation by obligation."""
+    heading("Widened subset verified by real Dafny: counted for, ternary, Math.abs, Math.min/max")
     ts_source = (
         "export function sumTo(n: number): number {\n"
         "  let t = 0;\n"
@@ -444,6 +444,12 @@ def check_constructs(dafny, solver, version):
         "}\n"
         "export function maxAbs(a: number, b: number): number {\n"
         "  return a > b ? Math.abs(a) : Math.abs(b - a);\n"
+        "}\n"
+        "export function clamp(x: number, lo: number, hi: number): number {\n"
+        "  return Math.max(lo, Math.min(x, hi));\n"
+        "}\n"
+        "export function cap(x: number, hi: number): number {\n"
+        "  return Math.min(x, hi);\n"
         "}\n")
     spec = {"header": "// synthetic test of the widened subset",
             "functions": {
@@ -452,11 +458,17 @@ def check_constructs(dafny, solver, version):
                           "loop": {"invariant": "0 <= i <= n", "obligations": ["T-2", "T-3"]},
                           "callers": "method UseSumTo() { var t := SumTo(5); }"},
                 "maxAbs": {"dafny_name": "MaxAbs", "nat": ["a", "b"], "returns": [["result", "nat"]],
-                           "obligations": ["C-1"]}}}
+                           "obligations": ["C-1"]},
+                "clamp": {"dafny_name": "Clamp", "nat": ["lo", "hi"], "returns": [["result", "int"]],
+                          "obligations": ["C-2"]},
+                "cap": {"dafny_name": "Cap", "nat": ["hi"], "returns": [["result", "int"]],
+                        "obligations": ["C-3"]}}}
     workspace = t2d.translate(ts_source, spec)
     check("function Abs(x: int): int" in workspace and "while i < n" in workspace
-          and "if a > b then Abs(a) else Abs(b - a)" in workspace,
-          "(setup) the translation emits the Abs helper, the desugared while, the if-expression",
+          and "if a > b then Abs(a) else Abs(b - a)" in workspace
+          and "function Min(x: int, y: int): int" in workspace and "function Max(x: int, y: int): int" in workspace
+          and "result := Max(lo, Min(x, hi));" in workspace and "result := Min(x, hi);" in workspace,
+          "(setup) the translation emits the Abs/Min/Max helpers, the desugared while, the if-expression",
           workspace)
     document = {
         "selyth_obligation_set_version": "0.1.0", "set_id": "constructs", "specification_version": "1.0.0",
@@ -471,14 +483,22 @@ def check_constructs(dafny, solver, version):
             {"obligation_id": "C-1", "kind": "postcondition",
              "statement": "ensures a > b ==> result == a",
              "required_evidence_kind": "kernel-proven", "assumptions": [], "affected_components": ["t.ts"]},
+            {"obligation_id": "C-2", "kind": "postcondition",
+             "statement": "ensures result >= lo",
+             "required_evidence_kind": "kernel-proven", "assumptions": [], "affected_components": ["t.ts"]},
+            {"obligation_id": "C-3", "kind": "postcondition",
+             "statement": "ensures result <= hi",
+             "required_evidence_kind": "kernel-proven", "assumptions": [], "affected_components": ["t.ts"]},
         ]}
     ir = adapter.lower(document, version)
     report = backend.build_report(ir, document, POLICY, workspace.encode("utf-8"), "constructs.dfy",
                                   PRODUCED_AT, dafny, solver, version, 1_000_000, 60)
     check(valid(report), "the report is valid for report-schema.json",
           "    " + "; ".join(f"{p.path} {p.message}" for p in validate.validate(report, REPORT_SCHEMA)))
-    check(outcomes(report) == {"T-1": "proven", "T-2": "proven", "T-3": "proven", "C-1": "proven"},
-          "all four obligations of the widened subset are proven by real Dafny", f"    {outcomes(report)}")
+    check(outcomes(report) == {"T-1": "proven", "T-2": "proven", "T-3": "proven", "C-1": "proven",
+                               "C-2": "proven", "C-3": "proven"},
+          "all six obligations of the widened subset (incl. Math.min/max) are proven by real Dafny",
+          f"    {outcomes(report)}")
     check(report["decision"]["result"] == "accepted", "and the run is accepted",
           f"    {report['decision']['violations']}")
 

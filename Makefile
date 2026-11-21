@@ -55,6 +55,9 @@ test-python: venv
 	@echo "== M6-Lite review trigger: ADR-004 classes, second-review sample, evidence package"
 	$(VPY) tools/test-review.py
 	@echo
+	@echo "== M6 audit journal: hash chain, tamper detection, head anchor"
+	$(VPY) tools/test-audit-journal.py
+	@echo
 	@echo "== Bench report schema and summarise() (docs/specifications/bench-schema.json)"
 	$(VPY) tools/test-bench.py
 	@echo

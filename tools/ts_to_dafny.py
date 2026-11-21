@@ -12,8 +12,9 @@ The subset (anything else is refused with a located error, never guessed):
     `for (let i = K; i < e; i++) { ... }` (K a non-negative literal, `<` or `<=`, only `i++` as the
     update — desugared to a `while` with an explicit counter), blocks;
   * expressions: integer literals, identifiers, `+ - * % / === !== < <= > >= && || !`, unary `-`,
-    parentheses, `c ? a : b`, `Math.floor(a / b)` as the only division, and `Math.abs(e)` (emitted as
-    an `Abs` helper on `int`; exact because `nat` is a subtype of `int`).
+    parentheses, `c ? a : b`, `Math.floor(a / b)` as the only division, `Math.abs(e)` (emitted as
+    an `Abs` helper on `int`; exact because `nat` is a subtype of `int`), and `Math.min(a, b)` /
+    `Math.max(a, b)` (emitted as prepended `Min` / `Max` helpers on `int`, exact on integers).
 
 Numbers are Dafny integers. That is a stated gap, not a translation: a TypeScript number is a
 double, exact only below 2^53, and the Dafny proof holds for unbounded integers (see
@@ -361,7 +362,15 @@ class Parser:
                 inner = self.expr()
                 self.eat(")")
                 return ("abs", inner)
-            raise TranslationError("only Math.floor and Math.abs are in the subset")
+            if name in ("min", "max"):
+                self.eat("(")
+                a = self.expr()
+                if not self.accept(","):
+                    raise TranslationError(f"Math.{name} takes exactly two arguments")
+                b = self.expr()
+                self.eat(")")
+                return ("minmax", "Min" if name == "min" else "Max", a, b)
+            raise TranslationError("only Math.floor, Math.abs, Math.min and Math.max are in the subset")
         if kind == "id":
             self.next()
             return ("var", tok)
@@ -381,6 +390,8 @@ _PREC = {"||": 2, "&&": 2, "==": 3, "!=": 3, "<": 3, "<=": 3, ">": 3, ">=": 3, "
          "*": 6, "/": 6, "%": 6, "if": 1}
 
 ABS_DEF = "function Abs(x: int): int\n{\n  if x < 0 then -x else x\n}"
+MIN_DEF = "function Min(x: int, y: int): int\n{\n  if x < y then x else y\n}"
+MAX_DEF = "function Max(x: int, y: int): int\n{\n  if x > y then x else y\n}"
 _NEGATED = {"<": ">=", "<=": ">", ">": "<=", ">=": "<", "===": "!==", "!==": "==="}
 
 
@@ -466,6 +477,8 @@ class Context:
             return self.is_nonneg(e[1], known) and self.is_nonneg(e[2], known)
         if kind == "abs":
             return True
+        if kind == "minmax":
+            return self.is_nonneg(e[2], known) and self.is_nonneg(e[3], known)
         if kind == "if":
             return self.is_nonneg(e[2], known) and self.is_nonneg(e[3], known)
         return False
@@ -519,6 +532,8 @@ class Context:
             return self._arith(e[1], e[2], "/", parent_op, right)
         if kind == "abs":
             return f"Abs({self.emit(e[1])})"
+        if kind == "minmax":
+            return f"{e[1]}({self.emit(e[2])}, {self.emit(e[3])})"
         if kind == "if":
             def sub(x):
                 t = self.emit(x)
@@ -651,28 +666,53 @@ def translate_function(fn, spec, indent="  "):
     return "\n".join(out)
 
 
-def _uses_abs_in_expr(e):
+def _uses_helper_in_expr(e, kinds):
     if not isinstance(e, tuple):
         return False
-    if e[0] == "abs":
+    if e[0] in kinds:
         return True
-    return any(_uses_abs_in_expr(x) for x in e[1:] if isinstance(x, tuple))
+    return any(_uses_helper_in_expr(x, kinds) for x in e[1:] if isinstance(x, tuple))
 
 
-def _uses_abs_in_stmts(stmts):
+def _uses_helper_in_stmts(stmts, kinds):
     for s in stmts:
-        if s[0] == "let" and _uses_abs_in_expr(s[2]):
+        if s[0] == "let" and _uses_helper_in_expr(s[2], kinds):
             return True
-        if s[0] == "return" and any(_uses_abs_in_expr(v) for v in s[1]):
+        if s[0] == "return" and any(_uses_helper_in_expr(v, kinds) for v in s[1]):
             return True
-        if s[0] == "assign" and _uses_abs_in_expr(s[3]):
+        if s[0] == "assign" and _uses_helper_in_expr(s[3], kinds):
             return True
-        if s[0] == "if" and (_uses_abs_in_expr(s[1]) or _uses_abs_in_stmts(s[2])
-                             or _uses_abs_in_stmts(s[3] or [])):
+        if s[0] == "if" and (_uses_helper_in_expr(s[1], kinds) or _uses_helper_in_stmts(s[2], kinds)
+                             or _uses_helper_in_stmts(s[3] or [], kinds)):
             return True
-        if s[0] == "while" and (_uses_abs_in_expr(s[1]) or _uses_abs_in_stmts(s[2])):
+        if s[0] == "while" and (_uses_helper_in_expr(s[1], kinds) or _uses_helper_in_stmts(s[2], kinds)):
             return True
-        if s[0] == "block" and _uses_abs_in_stmts(s[1]):
+        if s[0] == "block" and _uses_helper_in_stmts(s[1], kinds):
+            return True
+    return False
+
+
+def _uses_minmax_name(stmts, helper):
+    """Whether a min/max node with the given Dafny helper name occurs in the statements."""
+    def in_expr(e):
+        if not isinstance(e, tuple):
+            return False
+        if e[0] == "minmax" and e[1] == helper:
+            return True
+        return any(in_expr(x) for x in e[1:] if isinstance(x, tuple))
+    for s in stmts:
+        if s[0] == "let" and in_expr(s[2]):
+            return True
+        if s[0] == "return" and any(in_expr(v) for v in s[1]):
+            return True
+        if s[0] == "assign" and in_expr(s[3]):
+            return True
+        if s[0] == "if" and (in_expr(s[1]) or _uses_minmax_name(s[2], helper)
+                             or _uses_minmax_name(s[3] or [], helper)):
+            return True
+        if s[0] == "while" and (in_expr(s[1]) or _uses_minmax_name(s[2], helper)):
+            return True
+        if s[0] == "block" and _uses_minmax_name(s[1], helper):
             return True
     return False
 
@@ -689,12 +729,21 @@ def translate(ts_source, spec):
         raise TranslationError(f"function {name} has no entry in the specification")
     for name in sorted(set(declared) - seen):
         raise TranslationError(f"the specification names {name}, which the code does not declare")
-    uses_abs = any(_uses_abs_in_stmts(fn["body"]) for fn in functions)
+    uses_abs = any(_uses_helper_in_stmts(fn["body"], ("abs",)) for fn in functions)
+    uses_min = any(_uses_helper_in_stmts(fn["body"], ("minmax",)) and
+                   _uses_minmax_name(fn["body"], "Min") for fn in functions)
+    uses_max = any(_uses_helper_in_stmts(fn["body"], ("minmax",)) and
+                   _uses_minmax_name(fn["body"], "Max") for fn in functions)
     if uses_abs and any(entry.get("dafny_name") == "Abs" for entry in declared.values()):
         raise TranslationError("Math.abs is used and a function is already translated as `Abs`: rename one")
+    clash = {"Min", "Max"} & {entry.get("dafny_name") for entry in declared.values()}
+    if (uses_min or uses_max) and clash:
+        raise TranslationError(f"Math.min/max is used and a function is already translated as "
+                               f"{sorted(clash)[0]}: rename one")
     preamble = spec.get("preamble", "").rstrip("\n")
-    if uses_abs:
-        preamble = f"{preamble}\n\n{ABS_DEF}" if preamble else ABS_DEF
+    for used, definition in ((uses_abs, ABS_DEF), (uses_min, MIN_DEF), (uses_max, MAX_DEF)):
+        if used:
+            preamble = f"{preamble}\n\n{definition}" if preamble else definition
     parts = [spec.get("header", "").rstrip("\n"), preamble]
     for fn in functions:
         entry = declared[fn["name"]]
