@@ -27,6 +27,7 @@ make test-dafny      # the Dafny backend against a real Dafny 4.11.0 (SELYTH_DAF
 make check           # the whole gate on one example in one command (EXAMPLE=ledger|gcd|queue): validate,
                      # workspace regeneration check, lower, Dafny verify, accept under the lock, replay,
                      # property backend when the example has one; needs Dafny (Node too for EXAMPLE=gcd)
+make test-rust       # the Rust test runner in rust/ (cargo test + smoke run); needs cargo
 make test            # everything
 ```
 
