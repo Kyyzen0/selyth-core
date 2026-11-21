@@ -521,12 +521,65 @@ def check_switch():
         check(refused(ts) is not None, f"switch: {label} is refused", ts)
 
 
+def check_arrays_calls_lemmas():
+    heading("Widened subset: read-only arrays, pure internal calls, selyth:lemma comments")
+    spec = {"functions": {
+        "double": {"dafny_name": "Double", "nat": ["x"], "returns": [["result", "int"]], "pure": True},
+        "f": {"dafny_name": "F", "nat": ["a"], "returns": [["result", "int"]]}}}
+    out = translated("export function double(x: number): number { return x + x; }\n"
+                     "export function f(a: number): number { const t: number[] = [10, 20, 30];"
+                     " return t[a] + double(1) + t.length; }", spec)
+    check("function Double(x: nat): int" in out and "x + x" in out,
+          "a pure function (single return, \"pure\": true) becomes a Dafny function", out)
+    check("const t: seq<int> := [10, 20, 30];" in out, "a const array literal becomes a seq<int>", out)
+    check("result := t[a] + Double(1) + |t|;" in out,
+          "a[i] indexes the seq, a.length is |a|, a pure call is a function call", out)
+    out = translated("export function double(x: number): number { return x + x; }\n"
+                     "export function f(a: number): number { const t: number[] = [1, 2]; return t[1]; }", spec)
+    check("result := t[1];" in out and "t[1]" in out, "a literal in-range index translates", out)
+    out = translated("// selyth:lemma lemma DoubleNonneg(x: nat) ensures Double(x) >= 0 {}\n"
+                     "export function double(x: number): number { return x + x; }\n"
+                     "export function f(a: number): number { return double(a); }", spec)
+    check(out.startswith("lemma DoubleNonneg(x: nat) ensures Double(x) >= 0 {}"),
+          "a selyth:lemma comment lands in the preamble as a (Dafny-proven) lemma", out)
+    cases = {
+        "index out of range (literal)": "export function f(a: number): number { const t: number[] = [1, 2]; return t[5]; }",
+        "negative literal index": "export function f(a: number): number { const t: number[] = [1, 2]; return t[-1]; }",
+        "element assignment": "export function f(a: number): number { const t: number[] = [1, 2]; t[0] = 9; return t[0]; }",
+        "let array": "export function f(a: number): number { let t: number[] = [1]; return t[0]; }",
+        "array reassignment": "export function f(a: number): number { const t: number[] = [1]; t = [2]; return t[0]; }",
+        "empty array": "export function f(a: number): number { const t: number[] = []; return 0; }",
+        "array parameter": "export function f(t: number[]): number { return 0; }",
+        "index of a non-array": "export function f(a: number): number { return a[0]; }",
+        "call to an impure function": "export function g(a: number): number { let t = a; while (t > 0) { t -= 1; } return t; }\nexport function f(a: number): number { return g(a); }",
+        "call to an unknown name": "export function f(a: number): number { return nope(a); }",
+        "pure function with a loop": None,   # built below (needs spec)
+        "lemma with assume": "// selyth:lemma lemma L() ensures true { assume true; }\nexport function f(a: number): number { return a; }",
+        "lemma not starting with lemma": "// selyth:lemma ensures true {}\nexport function f(a: number): number { return a; }",
+        "duplicate lemma": "// selyth:lemma lemma L() ensures true {}\n// selyth:lemma lemma L() ensures true {}\nexport function f(a: number): number { return a; }",
+    }
+    for label, ts in cases.items():
+        if ts is None:
+            continue
+        sp = {"functions": {"f": {"dafny_name": "F", "nat": ["a"], "returns": [["result", "int"]]}}}
+        if "g(a)" in ts or "nope(a)" in ts:
+            sp["functions"]["g"] = {"dafny_name": "G", "nat": ["a"], "returns": [["t", "int"]],
+                                     "loop": {"invariant": "true"}}
+        check(refused(ts, sp) is not None, f"{label} is refused", ts)
+    # a "pure" spec entry on a looping function is refused
+    sp = {"functions": {"g": {"dafny_name": "G", "nat": ["a"], "returns": [["t", "int"]], "pure": True,
+                              "loop": {"invariant": "true"}}}}
+    check(refused("export function g(a: number): number { let t = a; while (t > 0) { t -= 1; } return t; }", sp)
+          is not None, "a pure entry on a looping function is refused")
+
+
 def main():
     check_ledger()
     check_shapes()
     check_loops()
     check_constructs()
     check_switch()
+    check_arrays_calls_lemmas()
     check_refusals()
     check_differential()
     check_construct_differential()

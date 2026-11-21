@@ -15,6 +15,14 @@ The subset (anything else is refused with a located error, never guessed):
     `switch (e) { case K: s...; case L: s...; [default: s...] }` with integer-literal labels only,
     each case ending in `break;` or `return ...;` (no fallthrough), `default` last — desugared to
     a chain of `if (e === K) ... else ...`, blocks;
+  * read-only fixed-size arrays: `const a: number[] = [e, ...];` (a `seq<int>`), reads `a[i]`
+    (literal indices are bounds-checked at translation time, others are left for Dafny to prove)
+    and `a.length` (`|a|`); element assignment, array parameters and reassignment are refused;
+  * calls to pure functions of the same module (`g(e, ...)` → a Dafny `function` call): a pure
+    function is a single `return e;`, no loop, no hook, marked `"pure": true` in the sidecar;
+    calls to impure functions are refused;
+  * `// selyth:lemma <Dafny lemma declaration>` comments, emitted as lemmas in the preamble —
+    proven by Dafny (fail-closed); trust escapes (`assume`, `{:axiom}`, ...) are refused;
   * expressions: integer literals, identifiers, `+ - * % / === !== < <= > >= && || !`, unary `-`,
     parentheses, `c ? a : b`, `Math.floor(a / b)` as the only division, `Math.abs(e)` (emitted as
     an `Abs` helper on `int`; exact because `nat` is a subtype of `int`), and `Math.min(a, b)` /
@@ -213,12 +221,32 @@ class Parser:
     def statement(self, hooks):
         tok = self.peek()
         if tok in ("let", "const"):
+            is_const = tok == "const"
             self.next()
             name = self.ident()
+            is_array = False
             if self.peek() == ":":
                 self.next()
-                self.number_type()
+                if self.peek() == "number" and self.peek(1) == "[":
+                    self.next()
+                    self.eat("[")
+                    self.eat("]")
+                    is_array = True
+                else:
+                    self.number_type()
             self.eat("=")
+            if is_array:
+                if not is_const:
+                    raise TranslationError(f"{name}: an array must be declared `const` (arrays are read-only)")
+                self.eat("[")
+                values = [self.expr()]
+                while self.accept(","):
+                    values.append(self.expr())
+                self.eat("]")
+                self.eat(";")
+                if not values:
+                    raise TranslationError(f"{name}: an empty array literal is refused")
+                return ("arrdecl", name, values)
             value = self.expr()
             self.eat(";")
             return ("let", name, value)
@@ -357,6 +385,8 @@ class Parser:
             return None
         if self.kind() == "id":
             name = self.next()
+            if self.peek() == "[":
+                raise TranslationError(f"{name}[...]: array elements are read-only in the subset")
             op = self.peek()
             if op in ("=", "+=", "-="):
                 self.next()
@@ -437,6 +467,24 @@ class Parser:
             raise TranslationError("only Math.floor, Math.abs, Math.min and Math.max are in the subset")
         if kind == "id":
             self.next()
+            if self.peek() == "[":
+                self.next()
+                index = self.expr()
+                self.eat("]")
+                return ("index", tok, index)
+            if self.peek() == "." and self.peek(1) == "length":
+                self.next()
+                self.next()
+                return ("arrlen", tok)
+            if self.peek() == "(":
+                self.next()
+                args = []
+                if self.peek() != ")":
+                    args.append(self.expr())
+                    while self.accept(","):
+                        args.append(self.expr())
+                self.eat(")")
+                return ("call", tok, args)
             return ("var", tok)
         if tok == "(":
             self.next()
@@ -485,7 +533,15 @@ class Context:
             raise TranslationError(f"{fn['name']}: `nat` lists unknown parameters {sorted(unknown)}")
         self.nonneg = {self.names[p] for p in spec.get("nat", [])}
         self.locals_declared = set()
+        self.arrays = {}                                   # TS name -> (Dafny name, length)
+        self.pure_calls = fn.get("pure_calls", {})         # TS name -> Dafny name of a pure function
+        self.pure_nat = fn.get("pure_nat", set())          # Dafny names of pure functions returning nat
         self._prepare(fn["body"])
+        for ts_name, (dname, _) in self.arrays.items():
+            if ts_name in fn["params"]:
+                raise TranslationError(f"{fn['name']}: {ts_name} is both a parameter and an array")
+            if dname in self.names.values() or dname in [r for r in self.results]:
+                raise TranslationError(f"{fn['name']}: the array {ts_name} collides once renamed: {dname}")
         # Dafny parameters are immutable: a parameter that the TypeScript reassigns is shadowed
         # by a mutable local of the same name at the top of the body (`var b := b;`), so the
         # assignments below are legal and the `ensures` clauses still see the original values.
@@ -501,7 +557,13 @@ class Context:
             for s in stmts:
                 if s[0] == "let":
                     inits.setdefault(s[1], []).append(s[2])
+                elif s[0] == "arrdecl":
+                    if s[1] in self.arrays:
+                        raise TranslationError(f"the array {s[1]} is declared twice")
+                    self.arrays[s[1]] = (dafny_name(s[1]), len(s[2]))
                 elif s[0] == "assign":
+                    if s[1] in self.arrays:
+                        raise TranslationError(f"{s[1]}: arrays are read-only in the subset")
                     updates.setdefault(s[1], []).append((s[2], s[3]))
                 elif s[0] == "if":
                     walk(s[2])
@@ -545,6 +607,10 @@ class Context:
             return self.is_nonneg(e[2], known) and self.is_nonneg(e[3], known)
         if kind == "if":
             return self.is_nonneg(e[2], known) and self.is_nonneg(e[3], known)
+        if kind == "arrlen":
+            return True
+        if kind == "call":
+            return dafny_name(e[1]) in self.pure_nat
         return False
 
     # Expression emission, with the fewest parentheses that keep the meaning in Dafny. Dafny has
@@ -598,6 +664,31 @@ class Context:
             return f"Abs({self.emit(e[1])})"
         if kind == "minmax":
             return f"{e[1]}({self.emit(e[2])}, {self.emit(e[3])})"
+        if kind == "index":
+            if e[1] not in self.arrays:
+                if e[1] in self.names or e[1] in self.locals_declared or e[1] in self.results:
+                    raise TranslationError(f"{e[1]} is not an array: indexing needs a `const x: number[] = [...]`")
+                raise TranslationError(f"unknown name {e[1]!r}")
+            dname, length = self.arrays[e[1]]
+            idx = e[2]
+            literal = None
+            if idx[0] == "num":
+                literal = idx[1]
+            elif idx[0] == "un" and idx[1] == "-" and idx[2][0] == "num":
+                literal = -idx[2][1]
+            if literal is not None and not (0 <= literal < length):
+                raise TranslationError(f"{e[1]}[{literal}]: the array has {length} element(s) (bounds are checked, not assumed)")
+            return f"{dname}[{self.emit(idx)}]"
+        if kind == "arrlen":
+            if e[1] not in self.arrays:
+                raise TranslationError(f"{e[1]}.length: {e[1]} is not an array")
+            return f"|{self.arrays[e[1]][0]}|"
+        if kind == "call":
+            if e[1] not in self.pure_calls:
+                raise TranslationError(f"call to {e[1]!r}: only calls to pure functions (single `return`, "
+                                       f"no loop, spec entry \"pure\": true) are in the subset")
+            args = ", ".join(self.emit(a) for a in e[2])
+            return f"{self.pure_calls[e[1]]}({args})"
         if kind == "if":
             def sub(x):
                 t = self.emit(x)
@@ -662,6 +753,13 @@ def translate_function(fn, spec, indent="  "):
                 else:
                     ctx.locals_declared.add(name)
                     lines.append(f"{pad}var {dafny_name(name)} := {ctx.emit(s[2])};")
+            elif kind == "arrdecl":
+                name = s[1]
+                if name in ctx.names or name in results:
+                    raise TranslationError(f"{fn['name']}: the array {name} collides with a parameter or result")
+                dname, _ = ctx.arrays[name]
+                values = ", ".join(ctx.emit(v) for v in s[2])
+                lines.append(f"{pad}const {dname}: seq<int> := [{values}];")
             elif kind == "assign":
                 _, name, op, value = s
                 target = dafny_name(name)
@@ -742,6 +840,8 @@ def _uses_helper_in_stmts(stmts, kinds):
     for s in stmts:
         if s[0] == "let" and _uses_helper_in_expr(s[2], kinds):
             return True
+        if s[0] == "arrdecl" and any(_uses_helper_in_expr(v, kinds) for v in s[2]):
+            return True
         if s[0] == "return" and any(_uses_helper_in_expr(v, kinds) for v in s[1]):
             return True
         if s[0] == "assign" and _uses_helper_in_expr(s[3], kinds):
@@ -781,9 +881,60 @@ def _uses_minmax_name(stmts, helper):
     return False
 
 
+_LEMMA_RE = re.compile(r"//[ \t]*selyth:lemma[ \t]+(.*)")
+_TRUST_WORDS = ("assume", "{:axiom}", "{:extern}", "expect ")
+
+
+def extract_lemmas(ts_source):
+    """`// selyth:lemma <Dafny lemma declaration>` comments become proven Dafny lemmas in the
+    preamble. They are PROVEN by Dafny (a false lemma fails verification, fail-closed); trust
+    escapes (`assume`, `{:axiom}`, `{:extern}`, `expect`) are refused here, as the backend's
+    trust scan refuses them in the workspace."""
+    lemmas = []
+    for lineno, line in enumerate(ts_source.splitlines(), 1):
+        m = _LEMMA_RE.search(line)
+        if not m:
+            continue
+        text = m.group(1).strip()
+        if not text.startswith("lemma "):
+            raise TranslationError(f"line {lineno}: a selyth:lemma comment holds a full Dafny lemma declaration")
+        if any(w in text for w in _TRUST_WORDS):
+            raise TranslationError(f"line {lineno}: trust escapes are refused in code (the workspace scan "
+                                   f"refuses them too)")
+        lemmas.append((lineno, text))
+    names = [text.split("(", 1)[0].split()[-1] for _, text in lemmas if "(" in text]
+    if len(names) != len(set(names)):
+        raise TranslationError("duplicate lemma name in selyth:lemma comments")
+    return [text for _, text in lemmas]
+
+
+def _is_pure(fn, entry):
+    """A pure function is emitted as a Dafny `function` (callable in expressions): a single
+    `return e;`, no loop, no hook, no obligations/callers in the sidecar."""
+    if not entry.get("pure"):
+        return False
+    if fn["hooks"]:
+        raise TranslationError(f"{fn['name']}: a pure function cannot have a test hook")
+    if entry.get("loop") or entry.get("obligations") or entry.get("callers"):
+        raise TranslationError(f"{fn['name']}: a pure function cannot carry a loop, obligations or callers")
+    if fn["arity"] != 1 or len(fn["body"]) != 1 or fn["body"][0][0] != "return" or len(fn["body"][0][1]) != 1:
+        raise TranslationError(f"{fn['name']}: a pure function is exactly one `return e;`")
+    return True
+
+
+def translate_pure(fn, entry):
+    ctx = Context(fn, entry)
+    params = ", ".join(f"{ctx.names[p]}: {'nat' if p in entry.get('nat', []) else 'int'}" for p in fn["params"])
+    rtype = entry["returns"][0][1]
+    body = ctx.emit(fn["body"][0][1][0])
+    return f"function {entry['dafny_name']}({params}): {rtype}\n{{\n  {body}\n}}"
+
+
 def translate(ts_source, spec):
-    """The Dafny workspace for `ts_source`: the preamble, then per function its translated method
-    and the hand-written callers, in the order the functions appear in the code."""
+    """The Dafny workspace for `ts_source`: the preamble (helpers, selyth:lemma lemmas), then per
+    function its translated method — or Dafny function, for pure ones — and the hand-written
+    callers, in the order the functions appear in the code."""
+    lemmas = extract_lemmas(ts_source)
     functions = Parser(tokenize(ts_source)).program()
     seen = {f["name"] for f in functions}
     declared = spec.get("functions", {})
@@ -793,6 +944,15 @@ def translate(ts_source, spec):
         raise TranslationError(f"function {name} has no entry in the specification")
     for name in sorted(set(declared) - seen):
         raise TranslationError(f"the specification names {name}, which the code does not declare")
+    pure = {fn["name"]: declared[fn["name"]] for fn in functions if _is_pure(fn, declared[fn["name"]])}
+    pure_calls = {name: entry["dafny_name"] for name, entry in pure.items()}
+    pure_nat = {entry["dafny_name"] for entry in pure.values() if entry["returns"][0][1] == "nat"}
+    for fn in functions:
+        fn["pure_calls"] = pure_calls
+        fn["pure_nat"] = pure_nat
+    all_dafny_names = [declared[f["name"]].get("dafny_name", dafny_name(f["name"])) for f in functions]
+    if len(all_dafny_names) != len(set(all_dafny_names)):
+        raise TranslationError("two functions share a Dafny name: rename one in the specification")
     uses_abs = any(_uses_helper_in_stmts(fn["body"], ("abs",)) for fn in functions)
     uses_min = any(_uses_helper_in_stmts(fn["body"], ("minmax",)) and
                    _uses_minmax_name(fn["body"], "Min") for fn in functions)
@@ -800,24 +960,28 @@ def translate(ts_source, spec):
                    _uses_minmax_name(fn["body"], "Max") for fn in functions)
     if uses_abs and any(entry.get("dafny_name") == "Abs" for entry in declared.values()):
         raise TranslationError("Math.abs is used and a function is already translated as `Abs`: rename one")
-    clash = {"Min", "Max"} & {entry.get("dafny_name") for entry in declared.values()}
-    if (uses_min or uses_max) and clash:
-        raise TranslationError(f"Math.min/max is used and a function is already translated as "
-                               f"{sorted(clash)[0]}: rename one")
+    clash = {"Abs", "Min", "Max"} & set(all_dafny_names)
+    if (uses_abs or uses_min or uses_max) and clash:
+        raise TranslationError(f"a helper name is already used by a function: {sorted(clash)[0]}: rename one")
     preamble = spec.get("preamble", "").rstrip("\n")
     for used, definition in ((uses_abs, ABS_DEF), (uses_min, MIN_DEF), (uses_max, MAX_DEF)):
         if used:
             preamble = f"{preamble}\n\n{definition}" if preamble else definition
+    for lemma in lemmas:
+        preamble = f"{preamble}\n\n{lemma}" if preamble else lemma
     parts = [spec.get("header", "").rstrip("\n"), preamble]
     for fn in functions:
         entry = declared[fn["name"]]
         block = []
         if entry.get("heading"):
             block.append(f"// ---- {entry['heading']}")
-        block.append(translate_function(fn, entry))
-        if entry.get("callers"):
-            block.append("")
-            block.append(entry["callers"].rstrip("\n"))
+        if fn["name"] in pure:
+            block.append(translate_pure(fn, entry))
+        else:
+            block.append(translate_function(fn, entry))
+            if entry.get("callers"):
+                block.append("")
+                block.append(entry["callers"].rstrip("\n"))
         parts.append("\n".join(block))
     return "\n\n".join(p for p in parts if p) + "\n"
 
