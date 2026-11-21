@@ -58,6 +58,9 @@ test-python: venv
 	@echo "== M6 audit journal: hash chain, tamper detection, head anchor"
 	$(VPY) tools/test-audit-journal.py
 	@echo
+	@echo "== M6-Lite launch rehearsal (dry run): corpus, gate, runs, review, journal; scoring skips without Dafny/Node"
+	$(VPY) tools/test-m6-dry-run.py
+	@echo
 	@echo "== Bench report schema and summarise() (docs/specifications/bench-schema.json)"
 	$(VPY) tools/test-bench.py
 	@echo
@@ -107,6 +110,7 @@ test-properties: venv
 test-eval: venv
 	@command -v node >/dev/null || { echo "Node >= 24 not found: install it or pass NODE_BIN=<dir with node>"; exit 1; }
 	$(VPY) tools/test-evaluate.py
+	$(VPY) tools/test-m6-dry-run.py
 
 # Measure the gate's cost on an example (default ledger, EXAMPLE=gcd for the third-party one;
 # E-05/P-01/F1): a table on stdout, the bench report JSON after it. Needs a real Dafny.
