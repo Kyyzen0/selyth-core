@@ -8,6 +8,7 @@
 #   make test-ts                  TypeScript port only (needs Node >= 24; NODE_BIN=<dir> if not on PATH)
 #   make test-properties          property-test backend, the second backend (needs Node >= 22.6
 #                                 for type stripping; SELYTH_NODE=<path> if not on PATH)
+#   make test-rust                compile and test the Rust test runner (rust/); needs cargo
 #   make bench [EXAMPLE=gcd]      measure the gate's cost on an example (default ledger): per-obligation
 #                                 table + bench report (needs Dafny)
 #   make check [EXAMPLE=gcd]      the whole gate on an example in one command: validate + components,
@@ -24,7 +25,7 @@ VPY    := $(VENV)/bin/python
 NODE_BIN ?=
 export PATH := $(if $(NODE_BIN),$(NODE_BIN):)$(PATH)
 
-.PHONY: test test-python test-dafny test-ts test-properties test-eval bench check ledger-workspace gcd-workspace venv clean
+.PHONY: test test-python test-dafny test-ts test-properties test-eval test-rust bench check ledger-workspace gcd-workspace venv clean
 
 test: test-python test-dafny test-ts test-eval
 
@@ -111,6 +112,10 @@ test-eval: venv
 	@command -v node >/dev/null || { echo "Node >= 24 not found: install it or pass NODE_BIN=<dir with node>"; exit 1; }
 	$(VPY) tools/test-evaluate.py
 	$(VPY) tools/test-m6-dry-run.py
+
+# The Rust test runner (rust/): compiles the CLI and runs its own tests.
+test-rust:
+	cd rust && cargo test --quiet
 
 # Measure the gate's cost on an example (default ledger, EXAMPLE=gcd for the third-party one;
 # E-05/P-01/F1): a table on stdout, the bench report JSON after it. Needs a real Dafny.

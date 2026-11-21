@@ -38,3 +38,6 @@ reports/
 *.swp
 .idea/
 .vscode/
+
+# Rust
+rust/target/

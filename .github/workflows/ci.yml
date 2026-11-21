@@ -3,6 +3,7 @@
 #   test-ts       the TypeScript port, byte-compared against the Python adapter (Node >= 24)
 #   test-dafny    the Dafny backend and the M5/M6 harnesses against a real Dafny 4.11.0
 #                 with its bundled z3 4.12.1 (the versions the backend pins)
+#   test-rust     the Rust test runner (rust/): cargo test, then the Python suite through it
 name: test
 
 on:
@@ -46,6 +47,23 @@ jobs:
         run: make test-ts
       - name: make test-properties
         run: make test-properties
+
+  test-rust:
+    # The Rust test runner (rust/): its own tests, then the Python suites through it as a smoke test.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: make test-rust
+        run: make test-rust
+      - name: Smoke test, run the Python suites through selyth-test
+        run: |
+          make venv
+          cargo run --manifest-path rust/Cargo.toml -- run python --jobs 4
 
   test-dafny:
     runs-on: ubuntu-24.04

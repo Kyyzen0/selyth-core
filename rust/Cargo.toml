@@ -1,0 +1,14 @@
+[package]
+name = "selyth-test"
+version = "0.1.0"
+edition = "2021"
+description = "Runs the Selyth Core test suites, discovered from the Makefile: per-step results, parallel, with a summary."
+license = "MIT"
+
+[lib]
+name = "selyth_test"
+path = "src/lib.rs"
+
+[[bin]]
+name = "selyth-test"
+path = "src/main.rs"
