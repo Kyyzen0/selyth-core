@@ -547,6 +547,51 @@ def check_constructs(dafny, solver, version):
           f"    {report['decision']['violations']}")
 
 
+def check_dowhile(dafny, solver, version):
+    """The do-while increment, proven by a real Dafny (post-test loop semantics)."""
+    heading("Widened subset: do { ... } while (c); proven by real Dafny")
+    ts_source = ("export function countdown(n: number): number {\n"
+                 "  let t = n;\n"
+                 "  do {\n"
+                 "    // selyth:invariant 0 <= t <= n\n"
+                 "    t -= 1;\n"
+                 "  } while (t > 0);\n"
+                 "  return t;\n"
+                 "}\n")
+    spec = {"functions": {"countdown": {"dafny_name": "Countdown", "nat": ["n"], "returns": [["t", "nat"]],
+                                         "obligations": ["D-1"],
+                                         "loop": {"obligations": ["D-2", "D-3"]}}}}
+    workspace = t2d.translate(ts_source, spec)
+    check("while true" in workspace and "invariant 0 <= t <= n" in workspace
+          and "if t <= 0 { break }" in workspace and "t := t - 1;" in workspace,
+          "(setup) the do-while is emitted as while true with the invariant and the negated exit test",
+          workspace)
+    check(workspace.index("t := t - 1;") < workspace.index("if t <= 0 { break }"),
+          "(setup) the body runs before the exit test (post-test semantics)", workspace)
+    document = {
+        "selyth_obligation_set_version": "0.1.0", "set_id": "dowhile", "specification_version": "1.0.0",
+        "title": "Do-while synthetic set",
+        "obligations": [
+            {"obligation_id": "D-1", "kind": "postcondition", "statement": "ensures t == 0",
+             "required_evidence_kind": "kernel-proven", "assumptions": [], "affected_components": ["t.ts"]},
+            {"obligation_id": "D-2", "kind": "termination", "statement": "decreases t",
+             "required_evidence_kind": "kernel-proven", "assumptions": [], "affected_components": ["t.ts"]},
+            {"obligation_id": "D-3", "kind": "invariant", "statement": "invariant 0 <= t <= n",
+             "required_evidence_kind": "kernel-proven", "assumptions": [], "affected_components": ["t.ts"]},
+        ]}
+    ir = adapter.lower(document, version)
+    report = backend.build_report(ir, document, POLICY, workspace.encode("utf-8"), "dowhile.dfy",
+                                  PRODUCED_AT, dafny, solver, version, 1_000_000, 60)
+    check(valid(report), "the report is valid for report-schema.json",
+          "    " + "; ".join(f"{p.path} {p.message}" for p in validate.validate(report, REPORT_SCHEMA)))
+    check(outcomes(report) == {"D-1": "proven", "D-2": "proven", "D-3": "proven"},
+          "the do-while's postcondition, termination and invariant are proven by real Dafny "
+          "(the body ran at least once: t == 0 after the loop)",
+          f"    {outcomes(report)}")
+    check(report["decision"]["result"] == "accepted", "and the run is accepted",
+          f"    {report['decision']['violations']}")
+
+
 def check_bench(dafny):
     """The benchmark target, end to end with a real Dafny: table + valid bench report."""
     heading("Bench: the gate's cost on the ledger (E-05 / P-01 / F1)")
@@ -600,6 +645,7 @@ def main():
               "    other versions may change diagnostics or resource counts")
         check_pipeline(dafny, solver, version)
         check_constructs(dafny, solver, version)
+        check_dowhile(dafny, solver, version)
         check_bench(dafny)
     print(f"\n{'FAILED' if FAILURES else 'all checks passed'}: {len(FAILURES)} failure(s)")
     for label, detail in FAILURES:

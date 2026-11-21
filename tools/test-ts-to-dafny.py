@@ -707,10 +707,37 @@ def check_contract_comments():
         check(refused(ts, sp) is not None, f"contract comments: {label} is refused", ts)
 
 
+def check_dowhile():
+    heading("Widened subset: do { ... } while (c); (post-test loop)")
+    spec = {"functions": {"f": {"dafny_name": "F", "nat": ["n"], "returns": [["t", "nat"]],
+                                "loop": {"invariant": "0 <= i <= n + 1", "obligations": ["X-1"]}}}}
+    src = ("export function f(n: number): number { let t = 0; let i = 0; "
+           "do { t += 2; i++; } while (i < n); return t; }")
+    out = translated(src, spec)
+    check("while true\n    invariant 0 <= i <= n + 1\n    // selyth:obligation X-1\n  {" in out,
+          "do-while becomes `while true` with its invariant and marker", out)
+    check("if i >= n { break }" in out, "the exit test is appended after the body, negated", out)
+    check(out.index("i := i + 1") < out.index("if i >= n { break }"),
+          "the body runs before the exit test (post-test, not pre-test)", out)
+    check("do" not in out, "no `do` keyword remains in the Dafny output", out)
+    check(refused("export function f(n: number): number { let t = 0; do t += 1; while (t < n); return t; }",
+                  spec) is not None, "a do body without braces is refused")
+    check(refused("export function f(n: number): number { let t = 0; do { t += 1; } while (t < n) return t; }",
+                  spec) is not None, "a missing semicolon after the do-while is refused")
+    check(refused(src, {"functions": {"f": {"dafny_name": "F", "nat": ["n"], "returns": [["t", "nat"]]}}})
+          is not None, "a do-while without an invariant is refused, like any loop")
+    check(refused("export function f(n: number): number { let t = 0; do { t += 1; } while (t < n); "
+                  "while (t < 9) { t += 1; } return t; }", spec) is not None,
+          "a do-while plus a second loop is refused (one loop per function)")
+    check(refused("export function f(n: number): number { let t = 0; do { break; } while (t < n); return t; }",
+                  spec) is not None, "a `break` inside the do body is refused (only the generated exit test breaks)")
+
+
 def main():
     check_ledger()
     check_shapes()
     check_loops()
+    check_dowhile()
     check_constructs()
     check_switch()
     check_arrays_calls_lemmas()
