@@ -60,7 +60,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: make test-rust
         run: make test-rust
-      - name: Smoke test: run the Python suites through selyth-test
+      - name: Smoke test, run the Python suites through selyth-test
         run: |
           make venv
           cargo run --manifest-path rust/Cargo.toml -- run python --jobs 4
